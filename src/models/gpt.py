@@ -5,6 +5,7 @@ import time
 from io import BytesIO
 from PIL import Image
 from typing import Any, cast
+from dotenv import load_dotenv
 from .base import BaseVLM, VLMOutput
 
 
@@ -17,6 +18,7 @@ def _pil_to_b64(img: Image.Image) -> str:
 class Gpt4V(BaseVLM):
 
     def load(self) -> None:
+        load_dotenv()
         try:
             from openai import OpenAI
         except ImportError:
@@ -24,8 +26,8 @@ class Gpt4V(BaseVLM):
 
         cfg = self.config["openai_api"]
         self._client = OpenAI(
-            api_key=os.environ["OPENAI_API_KEY"],
-            base_url=os.environ["OPENAI_API_BASE"],
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            base_url=os.environ.get("OPENAI_API_BASE"),
             timeout=cfg.get("timeout_s", 60),
         )
         self._model_id = self.config["model_id"]
