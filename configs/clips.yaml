@@ -1,0 +1,79 @@
+dataset: TITAN
+
+# Colonnes GT disponibles dans les CSV :
+#   persons  → Atomic Actions, Simple Context, Complex Contextual,
+#               Communicative, Transporting, Age + bbox + obj_track_id
+#   vehicles → Motion Status, Trunk Open, Doors Open + bbox + obj_track_id
+
+data_root: data/titan
+
+clips:
+
+  - clip_id: clip_1
+    video_path: clips/clip_1/images
+    annotation_path: annotations/clip_1.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_75
+    video_path: clips/clip_75/images
+    annotation_path: annotations/clip_75.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_279
+    video_path: clips/clip_279/images
+    annotation_path: annotations/clip_279.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_280
+    video_path: clips/clip_280/images
+    annotation_path: annotations/clip_280.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_544
+    video_path: clips/clip_544/images
+    annotation_path: annotations/clip_544.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_552
+    video_path: clips/clip_552/images
+    annotation_path: annotations/clip_552.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_621
+    video_path: clips/clip_621/images
+    annotation_path: annotations/clip_621.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_761
+    video_path: clips/clip_761/images
+    annotation_path: annotations/clip_761.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+  - clip_id: clip_785
+    video_path: clips/clip_785/images
+    annotation_path: annotations/clip_785.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
+
+sampling:
+  target_fps: null
+  window_sizes: [1, 3, 5]
+  frame_selection: uniform
+  max_resolution: [1280, 720]

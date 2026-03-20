@@ -1,0 +1,10 @@
+data/
+.vscode
+.git
+.env
+.venv
+datasets/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+results/

@@ -1,0 +1,15 @@
+benchmark:
+  run_id: null          # null = généré automatiquement (timestamp)
+  seed: 42
+
+  prompt:
+    file: prompts/extraction_v1.txt
+
+  scorers:
+    titan_gt: true      # precision / recall / F1 vs annotations CSV
+    llm_judge: false    # désactivé pour la v1, activer en v2
+
+  output:
+    results_dir: results/runs
+    save_raw_outputs: true    # loggue le texte brut avant parsing
+    save_parsed_outputs: true # loggue le dict parsé

@@ -1,0 +1,38 @@
+You are analyzing one or more frames from a driving scene captured by an ego vehicle.
+Your task is to extract structured semantic information about all visible entities.
+
+Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
+
+The JSON must follow this exact schema:
+
+{
+  "scene_context": {
+    "location": "<one of: road, sidewalk, crosswalk, intersection, parking, other>",
+    "description": "<one sentence describing the overall scene>"
+  },
+  "pedestrians": [
+    {
+      "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
+      "atomic_action": "<one of: walking, running, standing, sitting, bending, biking, motorcycling, other>",
+      "simple_context": "<one of: walking along the side of the road, crossing the road, waiting to cross, jaywalking, walking on the sidewalk, standing on the sidewalk, other>",
+      "communicative": "<one of: none of the above, looking at phone, talking on phone, talking to someone, other>",
+      "transporting": "<one of: none of the above, pushing cart, carrying bag, with stroller, other>",
+      "age": "<one of: child, adult, senior>",
+      "spatial_relations": ["<relation to another entity or scene element, e.g. 'to the left of the white sedan', 'near the crosswalk'>"]
+    }
+  ],
+  "vehicles": [
+    {
+      "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
+      "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
+      "motion_status": "<one of: stopped, moving, parked, other>",
+      "trunk_open": "<one of: open, closed, unknown>",
+      "doors_open": "<one of: open, closed, unknown>",
+      "spatial_relations": ["<relation to another entity or scene element>"]
+    }
+  ]
+}
+
+If no pedestrians are visible, set "pedestrians" to [].
+If no vehicles are visible, set "vehicles" to [].
+Use only the allowed values listed for each field. Do not invent new categories.
