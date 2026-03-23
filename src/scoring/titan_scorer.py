@@ -66,8 +66,9 @@ def _score_field(
     field: str,
 ) -> FieldScore:
     """Score un champ catégoriel : matching exact sur les valeurs normalisées."""
-    pred_set = {v.strip().lower() for v in pred_values if v}
-    gt_set   = {v.strip().lower() for v in gt_values   if v}
+    # On s'assure que chaque valeur est une string pour éviter les erreurs sur d'éventuels NaN (floats)
+    pred_set = {str(v).strip().lower() for v in pred_values if v is not None and str(v).strip()}
+    gt_set   = {str(v).strip().lower() for v in gt_values   if v is not None and str(v).strip()}
 
     tp = len(pred_set & gt_set)
     fp = len(pred_set - gt_set)

@@ -12,6 +12,9 @@ class ModelSummary:
     window_size: int
     n_frames: int
     parse_success_rate: float
+    f1_context: float
+    f1_pedestrians: float
+    f1_vehicles: float
     person_fields: dict[str, dict]   # field → {precision, recall, f1}
     vehicle_fields: dict[str, dict]
     avg_latency_s: float
@@ -66,6 +69,10 @@ def aggregate(
             for f in ["motion_status", "trunk_open", "doors_open"]
         }
 
+        f1_context = person_fields["simple_context"]["f1"]
+        f1_pedestrians = sum(f["f1"] for f in person_fields.values()) / len(person_fields) if person_fields else 0.0
+        f1_vehicles = sum(f["f1"] for f in vehicle_fields.values()) / len(vehicle_fields) if vehicle_fields else 0.0
+
         lats = latencies.get((model, n), [])
         toks = token_counts.get((model, n), {})
 
@@ -74,6 +81,9 @@ def aggregate(
             window_size=n,
             n_frames=n_frames,
             parse_success_rate=n_success / n_frames if n_frames > 0 else 0.0,
+            f1_context=f1_context,
+            f1_pedestrians=f1_pedestrians,
+            f1_vehicles=f1_vehicles,
             person_fields=person_fields,
             vehicle_fields=vehicle_fields,
             avg_latency_s=sum(lats) / len(lats) if lats else 0.0,

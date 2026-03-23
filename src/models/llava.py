@@ -10,12 +10,20 @@ class Llava(BaseVLM):
         import torch
         from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration
 
-        dtype = getattr(torch, self.config.get("dtype", "float16"))
-        self._processor = LlavaNextProcessor.from_pretrained(self.config["model_id"])
+        tf_cfg = self.config.get("transformers", {})
+        dtype_str = self.config.get("dtype", "float16")
+        dtype = getattr(torch, dtype_str) if hasattr(torch, dtype_str) else torch.float16
+
+        self._processor = LlavaNextProcessor.from_pretrained(
+            self.config["model_id"],
+            trust_remote_code=tf_cfg.get("trust_remote_code", False),
+        )
         self._model = LlavaNextForConditionalGeneration.from_pretrained(
             self.config["model_id"],
             torch_dtype=dtype,
             device_map=self.config.get("device", "cuda"),
+            attn_implementation=tf_cfg.get("attn_implementation", None),
+            trust_remote_code=tf_cfg.get("trust_remote_code", False),
         )
         self._model.eval()
         self._loaded = True
