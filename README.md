@@ -6,9 +6,9 @@ L'objectif principal est de mesurer la capacité des modèles à identifier et c
 
 ## 🚀 Objectifs du projet
 
-- **Évaluation de la Perception** : Comparer différents VLMs (Gemini, LLaVA, Molmo, Qwen, GPT-4V, etc.) sur leur précision de détection et de classification.
+- **Évaluation de la Perception** : Comparer différents VLMs (LLaVA, Molmo, Qwen, GPT-4V, etc.) sur leur précision de détection et de classification.
 - **Analyse Temporelle** : Étudier l'impact de la taille de la fenêtre temporelle (*Window Size*) sur la compréhension de la dynamique de la scène.
-- **Support Multi-Backend** : Intégration facile de modèles via API (Google, Mistral, OpenAI) ou en local (Transformers).
+- **Support Multi-Backend** : Intégration facile de modèles via API (Mistral, OpenAI) ou en local (Transformers).
 - **Scoring Automatisé** : Calcul automatique de métriques (F1-score) en comparant les sorties des modèles avec les annotations Ground Truth (GT) de TITAN.
 
 ## 🛠️ Schéma du Benchmark
@@ -32,7 +32,6 @@ Voici le fonctionnement global du pipeline d'évaluation :
 
 3. Configurez vos clés API dans un fichier `.env` à la racine :
    ```env
-   GEMINI_API_KEY=votre_cle
    MISTRAL_API_KEY=votre_cle
    OPENAI_API_KEY=votre_cle
    ```

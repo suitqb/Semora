@@ -11,7 +11,6 @@ _OVERRIDES: dict[str, tuple[str, str]] = {
     "llava-hf/llava-v1.6-mistral-7b-hf": ("src.models.llava",   "Llava"),
     "mistral-medium-latest":             ("src.models.mistral", "Mistral"),
     "gpt-4-vision-preview":              ("src.models.gpt",     "Gpt4V"),
-    "gemini-3.1-pro":                    ("src.models.gemini",  "Gemini"),
 }
 
 

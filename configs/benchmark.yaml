@@ -7,7 +7,7 @@ benchmark:
 
   scorers:
     titan_gt: true      # precision / recall / F1 vs annotations CSV
-    llm_judge: false    # désactivé pour la v1, activer en v2
+    llm_judge: true    # désactivé pour la v1, activer en v2
 
   output:
     results_dir: results/runs

@@ -1,7 +1,7 @@
   models:
 
     mistral-medium:
-      enabled: false
+      enabled: true
       backend: mistral_api
       model_id: mistral-medium-latest
       max_new_tokens: 512
@@ -34,7 +34,7 @@
         attn_implementation: sdpa   # sdpa est disponible par défaut dans torch >= 2.0
 
     llava-1-6:
-      enabled: true
+      enabled: false
       backend: local_transformers
       model_id: llava-hf/llava-v1.6-mistral-7b-hf
       dtype: float16
@@ -54,12 +54,3 @@
         base_url: "${OPENAI_API_BASE}"   # endpoint ALTEN spécifique
         api_key: "${OPENAI_API_BASE}"
         timeout_s: 60
-
-    gemini-3-1-pro:
-      enabled: true
-      backend: gemini_api
-      model_id: gemini-3.1-pro
-      max_new_tokens: 512
-      temperature: 0.0
-      gemini_api:
-        api_key: "${GEMINI_API_KEY}"
