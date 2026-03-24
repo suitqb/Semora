@@ -11,3 +11,4 @@ pip-chill==1.0.5
 pydantic_core==2.41.5
 python-dotenv==1.2.2
 qwen-vl-utils==0.0.14
+google-generativeai

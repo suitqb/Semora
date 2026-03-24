@@ -39,6 +39,7 @@ def run(
     window_sizes = sampling_cfg["window_sizes"]
     strategy     = sampling_cfg.get("frame_selection", "uniform")
     max_res      = tuple(sampling_cfg["max_resolution"]) if sampling_cfg.get("max_resolution") else None
+    step         = sampling_cfg.get("step", 1)
 
     prompt = Path(benchmark_cfg["prompt"]["file"]).read_text().strip()
 
@@ -82,7 +83,7 @@ def run(
             latencies[key]    = []
             token_counts[key] = {"prompt": 0, "completion": 0}
 
-            total_windows = sum(len(sample_windows(c, window_size=N, strategy=strategy, max_resolution=max_res)) for c in clips)
+            total_windows = sum(len(sample_windows(c, window_size=N, strategy=strategy, max_resolution=max_res, step=step)) for c in clips)
             
             with Progress(
                 SpinnerColumn(),
@@ -96,7 +97,7 @@ def run(
 
                 for clip in clips:
                     windows = sample_windows(
-                        clip, window_size=N, strategy=strategy, max_resolution=max_res
+                        clip, window_size=N, strategy=strategy, max_resolution=max_res, step=step
                     )
 
                     for window in windows:
