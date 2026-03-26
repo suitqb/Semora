@@ -15,19 +15,29 @@ def _pil_to_b64(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-class Gpt4V(BaseVLM):
+class GPT(BaseVLM):
 
     def load(self) -> None:
-        load_dotenv()
+        load_dotenv(override=True)
         try:
             from openai import OpenAI
         except ImportError:
             raise ImportError("pip install openai")
 
-        cfg = self.config["openai_api"]
+        cfg = self.config.get("openai_api", {})
+        
+        # Récupération de l'API key : priorité config (si non-template) puis env
+        api_key = cfg.get("api_key")
+        if not api_key or "${" in api_key:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            
+        base_url = cfg.get("base_url")
+        if not base_url or "${" in base_url:
+            base_url = os.environ.get("OPENAI_API_BASE")
+
         self._client = OpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY"),
-            base_url=os.environ.get("OPENAI_API_BASE"),
+            api_key=api_key,
+            base_url=base_url,
             timeout=cfg.get("timeout_s", 60),
         )
         self._model_id = self.config["model_id"]

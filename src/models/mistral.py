@@ -29,9 +29,18 @@ class Mistral(BaseVLM):
 
         cfg = self.config.get("mistral_api", {})
 
+        # Récupération de l'API key : priorité config (si non-template) puis env
+        api_key = cfg.get("api_key")
+        if not api_key or "${" in api_key:
+            api_key = os.environ.get("MISTRAL_API_KEY")
+
+        server_url = cfg.get("base_url") or cfg.get("server_url")
+        if not server_url or "${" in server_url:
+            server_url = os.environ.get("MISTRAL_API_BASE")
+
         self._client = MistralClient(
-            api_key=os.environ.get("MISTRAL_API_KEY"),
-            server_url=os.environ.get("MISTRAL_API_BASE")
+            api_key=api_key,
+            server_url=server_url
         )
 
         self._model_id = self.config["model_id"]
@@ -65,7 +74,6 @@ class Mistral(BaseVLM):
     def infer(self, frames: List[Image.Image], prompt: str) -> VLMOutput:
         assert self._loaded
 
-        # ✅ FORMAT MULTIMODAL CORRECT (Mistral vision / pixtral)
         messages: List[Any] = [
             {
                 "role": "user",
@@ -98,7 +106,6 @@ class Mistral(BaseVLM):
 
         latency = time.perf_counter() - t0
 
-        # ✅ gestion robuste du retour
         content_resp = response.choices[0].message.content
         raw_text = self._extract_text(content_resp)
 

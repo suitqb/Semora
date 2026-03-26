@@ -7,7 +7,18 @@
       max_new_tokens: 512
       temperature: 0.0
       mistral_api:
-        base_url: "${MISTRAL_API_BASE}"          # depuis .env
+        base_url: "${MISTRAL_API_BASE}"
+        api_key: "${MISTRAL_API_KEY}"
+        timeout_s: 60
+
+    mistral-large:
+      enabled: false
+      backend: mistral_api
+      model_id: mistral-large-latest
+      max_new_tokens: 512
+      temperature: 0.0
+      mistral_api:
+        base_url: "${MISTRAL_API_BASE}"
         api_key: "${MISTRAL_API_KEY}"
         timeout_s: 60
 
@@ -31,7 +42,7 @@
       temperature: 0.0
       device: cuda
       transformers:
-        attn_implementation: sdpa   # sdpa est disponible par défaut dans torch >= 2.0
+        attn_implementation: sdpa
 
     llava-1-6:
       enabled: false
@@ -44,13 +55,35 @@
       transformers:
         attn_implementation: eager
 
-    gpt-4v:
+    gpt-4-vision:
       enabled: false
       backend: openai_api
       model_id: gpt-4-vision-preview
       max_new_tokens: 512
       temperature: 0.0
       openai_api:
-        base_url: "${OPENAI_API_BASE}"   # endpoint ALTEN spécifique
-        api_key: "${OPENAI_API_BASE}"
+        base_url: "${OPENAI_API_BASE}"
+        api_key: "${OPENAI_API_KEY}"
+        timeout_s: 60
+
+    gpt-4o:
+      enabled: false
+      backend: openai_api
+      model_id: gpt-4o
+      max_new_tokens: 512
+      temperature: 0.0
+      openai_api:
+        base_url: "${OPENAI_API_BASE}"
+        api_key: "${OPENAI_API_KEY}"
+        timeout_s: 60
+
+    gpt-4o-mini:
+      enabled: true
+      backend: openai_api
+      model_id: gpt-4o-mini
+      max_new_tokens: 512
+      temperature: 0.0
+      openai_api:
+        base_url: "${OPENAI_API_BASE}"
+        api_key: "${OPENAI_API_KEY}"
         timeout_s: 60

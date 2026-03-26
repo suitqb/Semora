@@ -30,10 +30,21 @@ def run(
     models_cfg_path: Path,
     clips_cfg_path: Path,
     benchmark_cfg_path: Path,
+    selected_models: list[str] | None = None,
 ) -> Path:
     models_cfg    = _load_yaml(models_cfg_path)["models"]
     clips_cfg     = _load_yaml(clips_cfg_path)
     benchmark_cfg = _load_yaml(benchmark_cfg_path)["benchmark"]
+
+    # --- Filtrage des modèles ---
+    if selected_models:
+        console.print(f"[bold cyan]Filtrage des modèles :[/bold cyan] {', '.join(selected_models)}")
+        for m_key in list(models_cfg.keys()):
+            if m_key not in selected_models:
+                models_cfg[m_key]["enabled"] = False
+            else:
+                models_cfg[m_key]["enabled"] = True
+    # Sinon, on garde les 'enabled' tels que définis dans models.yaml
 
     sampling_cfg = clips_cfg["sampling"]
     window_sizes = sampling_cfg["window_sizes"]
