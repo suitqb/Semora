@@ -1,69 +1,69 @@
-# Semora: VLM Benchmark for Scene Understanding
+# Semora — VLM Benchmark for Scene Understanding
 
-Semora est un outil de benchmark conçu pour évaluer les performances des modèles de vision-langage (VLM) sur des tâches de compréhension de scènes routières, en utilisant le jeu de données **TITAN**.
+Semora est un outil de benchmark conçu pour évaluer les capacités des modèles de vision-langage (VLM) sur des tâches de compréhension de scènes routières, en utilisant le jeu de données **TITAN**.
 
-L'objectif principal est de mesurer la capacité des modèles à identifier et caractériser les piétons, les véhicules et le contexte global de la scène à partir de séquences d'images (vidéos).
+## Pourquoi ce benchmark ?
 
-## 🚀 Objectifs du projet
+Dans un pipeline de perception pour la conduite autonome, le choix du VLM est structurant : c'est lui qui produit les extractions sémantiques (attributs piétons, état des véhicules, contexte de scène) qui alimentent les étapes aval — construction de graphe de scène, prédiction d'intention.
 
-- **Évaluation de la Perception** : Comparer différents VLMs (LLaVA, Molmo, Qwen, GPT, etc.) sur leur précision de détection et de classification.
-- **Analyse Temporelle** : Étudier l'impact de la taille de la fenêtre temporelle (*Window Size*) sur la compréhension de la dynamique de la scène.
-- **Support Multi-Backend** : Intégration facile de modèles via API (Mistral, OpenAI) ou en local (Transformers).
-- **Scoring Automatisé** : Calcul automatique de métriques (F1-score) en comparant les sorties des modèles avec les annotations Ground Truth (GT) de TITAN.
+Mais tous les VLMs ne se valent pas sur ce type de tâche. Les benchmarks génériques (VQA, captioning) ne capturent pas les propriétés qui importent ici : la précision sur des attributs catégoriels fins, la cohérence temporelle sur une fenêtre vidéo, ou la richesse des relations spatiales entre entités.
 
-## 🛠️ Schéma du Benchmark
+**Semora répond à une question simple : quel modèle produit les meilleures extractions pour mon cas d'usage spécifique ?**
 
-Voici le fonctionnement global du pipeline d'évaluation :
+Il permet de comparer des modèles hétérogènes (API distantes, modèles locaux) sur les mêmes clips TITAN, avec des métriques adaptées à l'extraction sémantique structurée.
+
+## Pipeline d'évaluation
 
 ![Pipeline du Benchmark](assets/schema.svg)
 
-## 📦 Installation
+Pour chaque frame, le pipeline :
+1. échantillonne une fenêtre temporelle autour d'une frame centrale,
+2. soumet les images au VLM évalué avec un prompt standardisé,
+3. parse la réponse en une structure `ParsedOutput` (piétons, véhicules, contexte),
+4. score l'extraction selon deux méthodes complémentaires décrites ci-dessous.
 
-1. Clonez le dépôt :
-   ```bash
-   git clone <repo-url>
-   cd Semora
-   ```
+## Méthodes de scoring
 
-2. Installez les dépendances :
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 1. TITAN GT Scorer — matching symbolique
 
-3. Configurez vos clés API dans un fichier `.env` à la racine :
-   ```env
-   MISTRAL_API_KEY=votre_cle
-   OPENAI_API_KEY=votre_cle
-   ```
+Le scorer symbolique compare les extractions du modèle aux annotations Ground Truth du dataset TITAN sur des **champs catégoriels définis** :
 
-## ⚙️ Configuration
+| Entité | Champs scorés |
+|---|---|
+| Piétons | `atomic_action`, `simple_context`, `communicative`, `transporting`, `age` |
+| Véhicules | `motion_status`, `trunk_open`, `doors_open` |
 
-Le projet utilise trois fichiers YAML pour la configuration (dans le dossier `configs/`) :
+Pour chaque champ et chaque frame, les valeurs prédites et GT sont converties en ensembles (`set`), puis comparées par **matching ensembliste exact** :
 
-- **`models.yaml`** : Activez ou désactivez les modèles à tester et configurez leurs paramètres (température, max tokens, device, etc.).
-- **`clips.yaml`** : Définissez les clips du dataset TITAN à utiliser et la stratégie d'échantillonnage (taille des fenêtres, résolution, etc.).
-- **`benchmark.yaml`** : Configurez le prompt à utiliser et le dossier de sortie des résultats.
+- **TP** — valeurs correctement prédites (pred ∩ GT)
+- **FP** — valeurs prédites absentes du GT (pred − GT)
+- **FN** — valeurs GT non prédites (GT − pred)
 
-## 🏃 Comment lancer le benchmark
+On en déduit précision, rappel et **F1-score par champ**, agrégés ensuite sur l'ensemble des frames.
 
-Pour lancer l'évaluation complète avec les configurations par défaut :
+Ce scorer est rapide, déterministe et directement interprétable. Il est cependant aveugle à tout ce qui n'est pas annoté dans TITAN : la qualité de la description de scène, les relations spatiales, ou la pertinence contextuelle des extractions.
 
-```bash
-python run_benchmark.py
-```
+---
 
-Vous pouvez également spécifier des fichiers de configuration personnalisés :
+### 2. LLM-as-Judge — évaluation sémantique
 
-```bash
-python run_benchmark.py --models configs/my_models.yaml --clips configs/my_clips.yaml
-```
+Pour compenser les angles morts du scorer symbolique, Semora intègre un **juge LLM** (GPT-4o, référence dans la littérature scientifique sur ce pattern) qui évalue la qualité sémantique globale de chaque extraction.
 
-## 📂 Structure du projet
+Le judge reçoit en entrée l'extraction complète (`scene_context`, piétons, véhicules) et les annotations GT correspondantes, puis note quatre critères indépendants sur une échelle 0–1 :
 
-- `src/core/` : Logique principale du pipeline de benchmark.
-- `src/models/` : Implémentations des différents backends de modèles (BaseVLM, API, Local).
-- `src/sampling/` : Chargement des clips et échantillonnage des frames.
-- `src/parsing/` : Analyseurs pour transformer les réponses textuelles des VLMs en données structurées.
-- `src/scoring/` : Calcul des scores et agrégation des résultats.
-- `assets/` : Ressources graphiques (schémas, logos).
-- `results/` : Dossier contenant les sorties des runs (JSONL, scores finaux).
+| Critère | Ce que ça mesure |
+|---|---|
+| `completeness` | Tous les éléments GT sont-ils couverts par l'extraction ? |
+| `semantic_richness` | L'extraction apporte-t-elle des informations pertinentes au-delà du GT ? |
+| `spatial_relations` | Les relations spatiales entre entités sont-elles correctement décrites ? |
+| `overall` | Jugement holistique de la qualité de l'extraction |
+
+Chaque score est accompagné d'une justification en une phrase, ce qui permet d'auditer les évaluations.
+
+Le juge est appelé à `temperature=0.0` pour garantir la **reproductibilité** des scores entre runs. Les frames dont le parsing a échoué (`parse_success=False`) sont court-circuitées et reçoivent automatiquement un score nul, sans appel API.
+
+**Limites connues du pattern LLM-as-judge :** le modèle juge voit simultanément l'extraction et le GT, ce qui peut introduire un biais de compensation sur les scènes difficiles. Il convient donc d'interpréter ces scores en complément du GT scorer, et non comme une métrique indépendante.
+
+## Résultats
+
+Les résultats sont produits en JSONL par run, avec un score final agrégé par modèle, taille de fenêtre temporelle et champ. Ils permettent de comparer directement les modèles sur les deux axes : précision catégorielle (GT scorer) et qualité sémantique (judge).

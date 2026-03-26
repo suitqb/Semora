@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from ..parsing.output_parser import ParsedOutput
 from ..sampling.clip_loader import FrameAnnotation
@@ -72,6 +73,22 @@ def _format_gt(annotation: FrameAnnotation) -> str:
     }, indent=2)
 
 
+def _extract_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        texts = []
+        for chunk in content:
+            if hasattr(chunk, "text") and chunk.text:
+                texts.append(chunk.text)
+            elif isinstance(chunk, dict):
+                texts.append(chunk.get("text", ""))
+        return "".join(texts).strip()
+    return str(content).strip()
+
+
 def judge(
     parsed: ParsedOutput,
     annotation: FrameAnnotation,
@@ -94,7 +111,7 @@ def judge(
         )
 
     try:
-        from mistralai import Mistral
+        from mistralai.client import Mistral
 
         client = Mistral(
             api_key=os.environ["MISTRAL_API_KEY"],
@@ -114,8 +131,9 @@ def judge(
             max_tokens=512,
         )
 
-        raw = response.choices[0].message.content or ""
-        data = json.loads(raw)
+        raw_content = response.choices[0].message.content
+        raw_text = _extract_text(raw_content)
+        data = json.loads(raw_text)
 
         return JudgeScore(
             model_name=model_name, clip_id=clip_id,
