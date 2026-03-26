@@ -3,6 +3,8 @@ import json
 import traceback
 from datetime import datetime
 from pathlib import Path
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import yaml
 from rich.console import Console
@@ -11,20 +13,196 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, MofNCompleteColumn
 from rich import box
 
-from ..models.base import BaseVLM
 from ..models.registry import build_models
 from ..sampling.clip_loader import load_all_clips
 from ..sampling.frame_sampler import sample_windows
 from ..parsing.output_parser import parse
 from ..scoring.titan_scorer import score_frame
+from ..scoring.llm_judge import judge
 from ..scoring.aggregator import aggregate
 
+if TYPE_CHECKING:
+    from ..models.base import BaseVLM
+    from ..sampling.clip_loader import TITANClip
+    from ..scoring.titan_scorer import FrameScore
+    from ..scoring.llm_judge import JudgeScore
+    from ..scoring.aggregator import ModelSummary
+
 console = Console()
+
+@dataclass
+class PipelineContext:
+    """Groups all resources and configuration needed for the benchmark run."""
+    models: dict[str, BaseVLM]
+    clips: list[TITANClip]
+    benchmark_cfg: dict
+    sampling_cfg: dict
+    results_dir: Path
+    run_id: str
+    prompt: str
+
+@dataclass
+class InferenceResults:
+    """Aggregated outputs and scores from the inference loop."""
+    all_scores: list[FrameScore]
+    judge_scores: list[JudgeScore]
+    latencies: dict[tuple[str, int], list[float]]
+    token_counts: dict[tuple[str, int], dict[str, int]]
 
 def _load_yaml(path: Path) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
+def load_pipeline(
+    models_cfg_path: Path,
+    clips_cfg_path: Path,
+    benchmark_cfg_path: Path,
+    selected_models: list[str] | None = None,
+) -> PipelineContext:
+    """Load configurations, clips, and models required for the pipeline."""
+    models_cfg    = _load_yaml(models_cfg_path)["models"]
+    clips_cfg     = _load_yaml(clips_cfg_path)
+    benchmark_cfg = _load_yaml(benchmark_cfg_path)["benchmark"]
+
+    if selected_models:
+        console.print(f"[bold cyan]Filtering models:[/bold cyan] {', '.join(selected_models)}")
+        for m_key in models_cfg:
+            models_cfg[m_key]["enabled"] = m_key in selected_models
+
+    sampling_cfg = clips_cfg["sampling"]
+    prompt = Path(benchmark_cfg["prompt"]["file"]).read_text().strip()
+
+    run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = Path(benchmark_cfg["output"]["results_dir"]) / run_id
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    clips = load_all_clips(clips_cfg)
+    models = build_models(models_cfg)
+
+    header = Panel(
+        f"[bold blue]Run ID:[/bold blue] {run_id}\n"
+        f"[bold blue]Clips:[/bold blue] {len(clips)} | "
+        f"[bold blue]Models:[/bold blue] {len(models)} | "
+        f"[bold blue]Windows:[/bold blue] {sampling_cfg['window_sizes']}",
+        title="[bold white]Semora Benchmark[/bold white]",
+        border_style="bright_magenta",
+        box=box.ROUNDED
+    )
+    console.print(header)
+
+    return PipelineContext(
+        models=models, clips=clips, benchmark_cfg=benchmark_cfg,
+        sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt
+    )
+
+def run_inference(context: PipelineContext) -> InferenceResults:
+    """Execute the inference and per-frame scoring loop for all models and clips."""
+    all_scores: list[FrameScore] = []
+    judge_scores: list[JudgeScore] = []
+    latencies: dict[tuple[str, int], list[float]] = {}
+    token_counts: dict[tuple[str, int], dict[str, int]] = {}
+
+    raw_log_path    = context.results_dir / "raw_outputs.jsonl"
+    parsed_log_path = context.results_dir / "parsed_outputs.jsonl"
+    judge_log_path  = context.results_dir / "judge_outputs.jsonl"
+
+    window_sizes = context.sampling_cfg["window_sizes"]
+    strategy     = context.sampling_cfg.get("frame_selection", "uniform")
+    max_res      = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
+    step         = context.sampling_cfg.get("step", 1)
+
+    for model_name, model in context.models.items():
+        with console.status(f"[bold yellow]Loading model [magenta]{model_name}[/magenta]...", spinner="dots"):
+            try:
+                model.load()
+            except Exception:
+                console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
+                console.print(traceback.format_exc(limit=3), style="dim red")
+                continue
+
+        for N in window_sizes:
+            key = (model_name, N)
+            latencies[key], token_counts[key] = [], {"prompt": 0, "completion": 0}
+            total_windows = sum(len(sample_windows(c, N, strategy, max_res, step)) for c in context.clips)
+            
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(), console=console) as progress:
+                task_id = progress.add_task(f"[cyan]Processing {model_name} (N={N})", total=total_windows)
+                for clip in context.clips:
+                    for window in sample_windows(clip, N, strategy, max_res, step):
+                        try:
+                            vlm_out = model.infer(window.frames, context.prompt)
+                            vlm_out.clip_id, vlm_out.center_frame, vlm_out.frame_names = clip.clip_id, window.center_frame, window.frame_names
+
+                            if context.benchmark_cfg["output"].get("save_raw_outputs"):
+                                with open(raw_log_path, "a") as f:
+                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "raw_text": vlm_out.raw_text, "latency_s": vlm_out.latency_s}) + "\n")
+
+                            parsed = parse(vlm_out.raw_text)
+                            if context.benchmark_cfg["output"].get("save_parsed_outputs"):
+                                with open(parsed_log_path, "a") as f:
+                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "parse_success": parsed.parse_success, "parsed": parsed.__dict__}) + "\n")
+
+                            frame_score = score_frame(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N)
+                            all_scores.append(frame_score)
+
+                            judge_cfg = context.benchmark_cfg["scorers"].get("llm_judge")
+                            if judge_cfg and judge_cfg.get("enabled"):
+                                js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
+                                judge_scores.append(js)
+                                if context.benchmark_cfg["output"].get("save_parsed_outputs"):
+                                    with open(judge_log_path, "a") as f:
+                                        f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": js.__dict__}) + "\n")
+
+                            latencies[key].append(vlm_out.latency_s)
+                            token_counts[key]["prompt"] += vlm_out.prompt_tokens or 0
+                            token_counts[key]["completion"] += vlm_out.completion_tokens or 0
+                            
+                        except (KeyError, AttributeError, ImportError):
+                            # Re-raise critical configuration or code errors
+                            raise
+                        except Exception:
+                            # Soft catch for inference/IO errors
+                            console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
+                            console.print(traceback.format_exc(limit=2), style="dim red")
+                        progress.update(task_id, advance=1)
+
+        try:
+            model.unload()
+        except Exception:
+            pass
+    return InferenceResults(all_scores, judge_scores, latencies, token_counts)
+
+def run_scoring(results: InferenceResults) -> list[ModelSummary]:
+    """Aggregate per-frame results into model-level performance summaries."""
+    console.print("\n[bold green]✓ Benchmark finished. Aggregating scores...[/bold green]")
+    return aggregate(results.all_scores, results.latencies, results.token_counts, judge_scores=results.judge_scores)
+
+def report_results(summaries: list[ModelSummary], context: PipelineContext) -> None:
+    """Display the summary table and save consolidated scores to disk."""
+    table = Table(title="Scores Summary", box=box.HEAVY_EDGE, header_style="bold cyan")
+    table.add_column("Model", justify="left", style="magenta")
+    table.add_column("N", justify="center")
+    table.add_column("F1 Context", justify="right")
+    table.add_column("F1 Ped", justify="right")
+    table.add_column("F1 Veh", justify="right")
+    table.add_column("Judge", justify="right", style="yellow")
+    table.add_column("Latency (s)", justify="right")
+
+    for s in summaries:
+        table.add_row(
+            s.model_name, str(s.window_size),
+            f"{s.f1_context:.3f}" if s.f1_context is not None else "-",
+            f"{s.f1_pedestrians:.3f}" if s.f1_pedestrians is not None else "-",
+            f"{s.f1_vehicles:.3f}" if s.f1_vehicles is not None else "-",
+            f"{s.avg_judge_overall:.3f}" if s.avg_judge_overall is not None else "-",
+            f"{s.avg_latency_s:.2f}"
+        )
+    console.print(table)
+
+    with open(context.results_dir / "scores.json", "w") as f:
+        json.dump([s.__dict__ for s in summaries], f, indent=2, default=str)
+
+    console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))
 
 def run(
     models_cfg_path: Path,
@@ -32,172 +210,15 @@ def run(
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
 ) -> Path:
-    models_cfg    = _load_yaml(models_cfg_path)["models"]
-    clips_cfg     = _load_yaml(clips_cfg_path)
-    benchmark_cfg = _load_yaml(benchmark_cfg_path)["benchmark"]
-
-    # --- Filtrage des modèles ---
-    if selected_models:
-        console.print(f"[bold cyan]Filtrage des modèles :[/bold cyan] {', '.join(selected_models)}")
-        for m_key in list(models_cfg.keys()):
-            if m_key not in selected_models:
-                models_cfg[m_key]["enabled"] = False
-            else:
-                models_cfg[m_key]["enabled"] = True
-    # Sinon, on garde les 'enabled' tels que définis dans models.yaml
-
-    sampling_cfg = clips_cfg["sampling"]
-    window_sizes = sampling_cfg["window_sizes"]
-    strategy     = sampling_cfg.get("frame_selection", "uniform")
-    max_res      = tuple(sampling_cfg["max_resolution"]) if sampling_cfg.get("max_resolution") else None
-    step         = sampling_cfg.get("step", 1)
-
-    prompt = Path(benchmark_cfg["prompt"]["file"]).read_text().strip()
-
-    run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = Path(benchmark_cfg["output"]["results_dir"]) / run_id
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    raw_log_path    = results_dir / "raw_outputs.jsonl"
-    parsed_log_path = results_dir / "parsed_outputs.jsonl"
-
-    clips = load_all_clips(clips_cfg)
-    
-    header = Panel(
-        f"[bold blue]Run ID:[/bold blue] {run_id}\n"
-        f"[bold blue]Clips:[/bold blue] {len(clips)} | "
-        f"[bold blue]Modèles:[/bold blue] {len(models_cfg)} | "
-        f"[bold blue]Windows:[/bold blue] {window_sizes}",
-        title="[bold white]Semora Benchmark[/bold white]",
-        border_style="bright_magenta",
-        box=box.ROUNDED
-    )
-    console.print(header)
-
-    models: dict[str, BaseVLM] = build_models(models_cfg)
-
-    all_scores   = []
-    latencies    = {}
-    token_counts = {}
-
-    for model_name, model in models.items():
-        with console.status(f"[bold yellow]Chargement du modèle [magenta]{model_name}[/magenta]...", spinner="dots"):
-            try:
-                model.load()
-            except Exception:
-                console.print(f"[bold red]✗ Échec du chargement de {model_name}[/bold red]")
-                console.print(traceback.format_exc(limit=3), style="dim red")
-                continue
-
-        for N in window_sizes:
-            key = (model_name, N)
-            latencies[key]    = []
-            token_counts[key] = {"prompt": 0, "completion": 0}
-
-            total_windows = sum(len(sample_windows(c, window_size=N, strategy=strategy, max_resolution=max_res, step=step)) for c in clips)
-            
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-                console=console
-            ) as progress:
-                task_id = progress.add_task(f"[cyan]Traitement {model_name} (N={N})", total=total_windows)
-
-                for clip in clips:
-                    windows = sample_windows(
-                        clip, window_size=N, strategy=strategy, max_resolution=max_res, step=step
-                    )
-
-                    for window in windows:
-                        try:
-                            vlm_out = model.infer(window.frames, prompt)
-                            vlm_out.clip_id      = clip.clip_id
-                            vlm_out.center_frame = window.center_frame
-                            vlm_out.frame_names  = window.frame_names
-
-                            if benchmark_cfg["output"].get("save_raw_outputs"):
-                                with open(raw_log_path, "a") as f:
-                                    f.write(json.dumps({
-                                        "model": model_name, "N": N,
-                                        "clip_id": clip.clip_id,
-                                        "center_frame": window.center_frame,
-                                        "raw_text": vlm_out.raw_text,
-                                        "latency_s": vlm_out.latency_s,
-                                    }) + "\n")
-
-                            parsed = parse(vlm_out.raw_text)
-
-                            if benchmark_cfg["output"].get("save_parsed_outputs"):
-                                with open(parsed_log_path, "a") as f:
-                                    f.write(json.dumps({
-                                        "model": model_name, "N": N,
-                                        "clip_id": clip.clip_id,
-                                        "center_frame": window.center_frame,
-                                        "parse_success": parsed.parse_success,
-                                        "parsed": {
-                                            "scene_context": parsed.scene_context,
-                                            "pedestrians": parsed.pedestrians,
-                                            "vehicles": parsed.vehicles,
-                                        },
-                                    }) + "\n")
-
-                            frame_score = score_frame(
-                                parsed=parsed,
-                                annotation=window.annotation,
-                                model_name=model_name,
-                                clip_id=clip.clip_id,
-                                center_frame=window.center_frame,
-                                window_size=N,
-                            )
-                            all_scores.append(frame_score)
-                            latencies[key].append(vlm_out.latency_s)
-                            token_counts[key]["prompt"]     += vlm_out.prompt_tokens or 0
-                            token_counts[key]["completion"] += vlm_out.completion_tokens or 0
-                            
-                        except Exception:
-                            console.print(f"[red]✗ Erreur sur {clip.clip_id}/{window.center_frame}[/red]")
-                            console.print(traceback.format_exc(limit=2), style="dim red")
-                        
-                        progress.update(task_id, advance=1)
-
-        try:
-            model.unload()
-        except Exception:
-            pass
-
-    console.print("\n[bold green]✓ Benchmark terminé. Agrégation des scores...[/bold green]")
-
-    summaries = aggregate(all_scores, latencies, token_counts)
-    
-    # Affichage d'un beau tableau de résultats
-    table = Table(title="Résumé des Scores", box=box.HEAVY_EDGE, header_style="bold cyan")
-    table.add_column("Modèle", justify="left", style="magenta")
-    table.add_column("N", justify="center")
-    table.add_column("F1 Context", justify="right")
-    table.add_column("F1 Ped", justify="right")
-    table.add_column("F1 Veh", justify="right")
-    table.add_column("Latence (s)", justify="right")
-
-    for s in summaries:
-        table.add_row(
-            s.model_name,
-            str(s.window_size),
-            f"{s.f1_context:.3f}" if s.f1_context is not None else "-",
-            f"{s.f1_pedestrians:.3f}" if s.f1_pedestrians is not None else "-",
-            f"{s.f1_vehicles:.3f}" if s.f1_vehicles is not None else "-",
-            f"{s.avg_latency_s:.2f}"
-        )
-    
-    console.print(table)
-
-    scores_path = results_dir / "scores.json"
-    with open(scores_path, "w") as f:
-        json.dump([s.__dict__ for s in summaries], f, indent=2)
-
-    console.print(Panel(f"Résultats sauvegardés dans : [bold white]{results_dir}[/bold white]", border_style="green"))
-
-    return results_dir
-
+    """Main pipeline entry point. Orchestrates loading, inference, scoring, and reporting."""
+    # Preserve existing Exception catch (may mask config errors if they occur here)
+    try:
+        context   = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models)
+        results   = run_inference(context)
+        summaries = run_scoring(results)
+        report_results(summaries, context)
+        return context.results_dir
+    except Exception:
+        console.print("[bold red]Critical pipeline failure[/bold red]")
+        console.print(traceback.format_exc())
+        raise

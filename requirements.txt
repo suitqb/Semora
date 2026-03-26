@@ -1,13 +1,24 @@
+# --- Core Dependencies ---
 PyYAML==6.0.3
+rich # added by audit
+pandas # added by audit
+Pillow # added by audit
+python-dotenv==1.2.2
+
+# --- Model Backends & ML ---
+mistralai==2.1.0
+openai # added by audit
+torch # added by audit
+transformers # added by audit
+qwen-vl-utils==0.0.14
+molmo-utils==0.0.1
+
+# --- Utilities ---
 Pygments==2.19.2
 charset-normalizer==3.4.6
 cuda-pathfinder==1.4.3
-einops==0.8.2
+einops==0.8.2 # possibly unused — verify before removing
 eval_type_backport==0.3.1
 mdurl==0.1.2
-mistralai==2.1.0
-molmo-utils==0.0.1
 pip-chill==1.0.5
 pydantic_core==2.41.5
-python-dotenv==1.2.2
-qwen-vl-utils==0.0.14

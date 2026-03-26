@@ -3,11 +3,12 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from .titan_scorer import FrameScore
+from .llm_judge import JudgeScore
 
 
 @dataclass
 class ModelSummary:
-    """Scores agrégés pour un modèle × window_size."""
+    """Aggregated scores for a model × window_size."""
     model_name: str
     window_size: int
     n_frames: int
@@ -20,24 +21,30 @@ class ModelSummary:
     avg_latency_s: float
     total_prompt_tokens: int
     total_completion_tokens: int
+    # --- Judge Scores (0-1) ---
+    avg_judge_completeness: float | None = None
+    avg_judge_semantic_richness: float | None = None
+    avg_judge_spatial_relations: float | None = None
+    avg_judge_overall: float | None = None
 
 
 def aggregate(
     scores: list[FrameScore],
     latencies: dict[tuple[str, int], list[float]],
     token_counts: dict[tuple[str, int], dict[str, int]],
+    judge_scores: list[JudgeScore] | None = None,
 ) -> list[ModelSummary]:
-    """Agrège les FrameScore par (model_name, window_size).
-
-    Args:
-        scores:       liste de tous les FrameScore du run
-        latencies:    {(model, N): [latency_s, ...]}
-        token_counts: {(model, N): {prompt: int, completion: int}}
-    """
-    # Groupe les scores par (model, N)
+    """Aggregate FrameScore and JudgeScore by (model_name, window_size)."""
+    # Group scores by (model, N)
     groups: dict[tuple[str, int], list[FrameScore]] = defaultdict(list)
     for s in scores:
         groups[(s.model_name, s.window_size)].append(s)
+
+    # Group judge scores by (model, N)
+    judge_groups: dict[tuple[str, int], list[JudgeScore]] = defaultdict(list)
+    if judge_scores:
+        for js in judge_scores:
+            judge_groups[(js.model_name, js.window_size)].append(js)
 
     summaries: list[ModelSummary] = []
 
@@ -45,7 +52,7 @@ def aggregate(
         n_frames = len(group)
         n_success = sum(1 for s in group if s.parse_success)
 
-        # Agrège precision/recall/f1 par field en moyennant sur les frames
+        # Aggregate precision/recall/f1 per field by averaging over frames
         def _agg_field(field_name: str, src: str) -> dict:
             values = [
                 getattr(s, f"{src}_scores").get(field_name)
@@ -76,6 +83,22 @@ def aggregate(
         lats = latencies.get((model, n), [])
         toks = token_counts.get((model, n), {})
 
+        # --- Judge Aggregation ---
+        avg_comp = None
+        avg_sem  = None
+        avg_spat = None
+        avg_over = None
+        
+        j_group = judge_groups.get((model, n), [])
+        if j_group:
+            # Only count frames where the judge did not have an error
+            j_valid = [js for js in j_group if js.judge_error is None]
+            if j_valid:
+                avg_comp = sum(js.completeness for js in j_valid) / len(j_valid)
+                avg_sem  = sum(js.semantic_richness for js in j_valid) / len(j_valid)
+                avg_spat = sum(js.spatial_relations for js in j_valid) / len(j_valid)
+                avg_over = sum(js.overall for js in j_valid) / len(j_valid)
+
         summaries.append(ModelSummary(
             model_name=model,
             window_size=n,
@@ -89,6 +112,10 @@ def aggregate(
             avg_latency_s=sum(lats) / len(lats) if lats else 0.0,
             total_prompt_tokens=toks.get("prompt", 0),
             total_completion_tokens=toks.get("completion", 0),
+            avg_judge_completeness=avg_comp,
+            avg_judge_semantic_richness=avg_sem,
+            avg_judge_spatial_relations=avg_spat,
+            avg_judge_overall=avg_over,
         ))
 
     return sorted(summaries, key=lambda s: (s.model_name, s.window_size))

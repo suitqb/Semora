@@ -6,15 +6,15 @@ from PIL import Image
 
 @dataclass
 class VLMOutput:
-    """Sortie brute d'un modèle pour une window de frames."""
+    """Raw output of a model for a window of frames."""
     model_name: str
     clip_id: str
     center_frame: str
     window_size: int
     frame_names: list[str]
-    raw_text: str              # texte brut avant tout parsing — toujours loggué
+    raw_text: str              # raw text before any parsing — always logged
     latency_s: float
-    prompt_tokens: int | None  # None si non dispo (certains backends locaux)
+    prompt_tokens: int | None  # None if not available (some local backends)
     completion_tokens: int | None
 
 
@@ -27,24 +27,24 @@ class BaseVLM(ABC):
 
     @abstractmethod
     def load(self) -> None:
-        """Charge le modèle en mémoire. Appelé une seule fois avant les inférences."""
+        """Load the model into memory. Called once before inferences."""
         ...
 
     @abstractmethod
     def infer(self, frames: list[Image.Image], prompt: str) -> VLMOutput:
-        """Lance une inférence sur une window de frames.
+        """Run an inference on a window of frames.
 
         Args:
-            frames: frames PIL dans l'ordre chronologique.
-            prompt: prompt fixe lu depuis prompts/extraction_v1.txt.
+            frames: PIL frames in chronological order.
+            prompt: fixed prompt read from prompts/extraction_v1.txt.
 
         Returns:
-            VLMOutput avec raw_text et métadonnées de performance.
+            VLMOutput with raw_text and performance metadata.
         """
         ...
 
     def unload(self) -> None:
-        """Libère la mémoire GPU. Optionnel, appelé entre deux modèles."""
+        """Release GPU memory. Optional, called between two models."""
         pass
 
     def __repr__(self) -> str:

@@ -1,18 +1,11 @@
 from __future__ import annotations
-import base64
 import os
 import time
-from io import BytesIO
 from PIL import Image
 from typing import Any, cast
 from dotenv import load_dotenv
 from .base import BaseVLM, VLMOutput
-
-
-def _pil_to_b64(img: Image.Image) -> str:
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
+from ..core.utils import pil_to_b64
 
 
 class GPT(BaseVLM):
@@ -51,7 +44,7 @@ class GPT(BaseVLM):
             content.append({
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/png;base64,{_pil_to_b64(img)}",
+                    "url": f"data:image/png;base64,{pil_to_b64(img)}",
                     "detail": "high",
                 },
             })

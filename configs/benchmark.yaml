@@ -1,15 +1,20 @@
 benchmark:
-  run_id: null          # null = généré automatiquement (timestamp)
+  run_id: null          # null = automatically generated (timestamp)
   seed: 42
 
   prompt:
     file: prompts/extraction_v1.txt
 
   scorers:
-    titan_gt: true      # precision / recall / F1 vs annotations CSV
-    llm_judge: true    # désactivé pour la v1, activer en v2
+    titan_gt: true      # precision / recall / F1 vs TITAN CSV annotations
+    llm_judge:
+      enabled: true
+      backend: "mistral_api"         # "openai_api" or "mistral_api"
+      model_id: "mistral-medium-latest" # Model used for judging
+      temperature: 0.0
+      max_tokens: 1024
 
   output:
     results_dir: results/runs
-    save_raw_outputs: true    # loggue le texte brut avant parsing
-    save_parsed_outputs: true # loggue le dict parsé
+    save_raw_outputs: true    # log raw text before parsing
+    save_parsed_outputs: true # log parsed dictionary

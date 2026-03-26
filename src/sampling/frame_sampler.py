@@ -7,13 +7,13 @@ from .clip_loader import TITANClip, FrameAnnotation
 
 @dataclass
 class FrameWindow:
-    """Une window = N frames consécutives centrées sur une frame cible."""
+    """A window = N consecutive frames centered on a target frame."""
     clip_id: str
-    center_frame: str           # frame cible (celle scorée contre le GT)
-    frame_names: list[str]      # N frames dans l'ordre chronologique
-    frames: list[Image.Image]   # images PIL correspondantes
-    annotation: FrameAnnotation # GT de la frame cible uniquement
-    window_size: int            # N demandé (peut différer en bord de clip)
+    center_frame: str           # target frame (scored against GT)
+    frame_names: list[str]      # N frames in chronological order
+    frames: list[Image.Image]   # corresponding PIL images
+    annotation: FrameAnnotation # GT for the target frame only
+    window_size: int            # requested N (may differ at clip edges)
 
 
 def _select_indices(
@@ -22,12 +22,12 @@ def _select_indices(
     n: int,
     strategy: str,
 ) -> list[int]:
-    """Retourne les indices des N frames à inclure dans la window.
+    """Returns the indices of the N frames to include in the window.
 
-    Stratégies :
-      uniform — N frames espacées régulièrement autour de center_idx
-      last    — les N frames précédant center_idx (inclus)
-      center  — center_idx au milieu, frames de part et d'autre
+    Strategies:
+      uniform — N frames spaced regularly around center_idx
+      last    — the N frames preceding center_idx (inclusive)
+      center  — center_idx in the middle, frames on either side
     """
     if n == 1:
         return [center_idx]
@@ -43,16 +43,16 @@ def _select_indices(
         start = max(0, end - n + 1)
         indices = list(range(start, end + 1))
 
-    else:  # uniform (défaut)
+    else:  # uniform (default)
         start = max(0, center_idx - n + 1)
         end   = center_idx
         if end - start + 1 < n:
-            # pas assez de frames avant, on prend ce qu'on peut
+            # not enough frames before, take what we can
             indices = list(range(start, end + 1))
         else:
             step = (end - start) / (n - 1)
             indices = [round(start + i * step) for i in range(n)]
-            # garantit que center_idx est toujours la dernière frame
+            # guarantees that center_idx is always the last frame
             indices[-1] = center_idx
 
     return indices
@@ -65,23 +65,23 @@ def sample_windows(
     max_resolution: tuple[int, int] | None = (1280, 720),
     step: int = 1,
 ) -> list[FrameWindow]:
-    """Génère toutes les windows possibles pour un clip.
+    """Generates all possible windows for a clip.
 
     Args:
-        clip:           TITANClip chargé
-        window_size:    N (nombre de frames par window)
+        clip:           loaded TITANClip
+        window_size:    N (number of frames per window)
         strategy:       uniform | last | center
-        max_resolution: resize appliqué au chargement (natif 2704×1520)
-        step:           pas entre deux center_frames consécutives
+        max_resolution: resize applied upon loading (native 2704×1520)
+        step:           step between two consecutive center_frames
 
     Returns:
-        Liste de FrameWindow — une par frame annotée du clip
+        List of FrameWindow — one per annotated frame of the clip
     """
     frame_names = clip.frame_names
     total = len(frame_names)
     windows: list[FrameWindow] = []
 
-    # On itère uniquement sur les frames qui ont une annotation GT
+    # Iterate only on frames that have a GT annotation
     annotated = [fn for fn in frame_names if fn in clip.annotations]
 
     for center_name in annotated[::step]:

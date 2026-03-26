@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 @dataclass
 class ParsedOutput:
-    """Résultat parsé d'une inférence VLM."""
+    """Parsed result of a VLM inference."""
     scene_context: dict
     pedestrians: list[dict]
     vehicles: list[dict]
@@ -15,10 +15,10 @@ class ParsedOutput:
 
 
 def _extract_json(text: str) -> str:
-    """Extrait le premier bloc JSON valide du texte brut.
+    """Extract the first valid JSON block from the raw text.
 
-    Certains modèles wrappent leur réponse dans du markdown (```json ... ```)
-    malgré l'instruction contraire dans le prompt.
+    Some models wrap their response in markdown (```json ... ```)
+    despite the opposite instruction in the prompt.
     """
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
@@ -41,10 +41,10 @@ def _extract_json(text: str) -> str:
 
 
 def parse(raw_text: str) -> ParsedOutput:
-    """Parse le texte brut d'un VLM en structure exploitable.
+    """Parse raw VLM text into a usable structure.
 
-    Tolérant : si le JSON est malformé, retourne un ParsedOutput vide
-    avec parse_success=False plutôt que de planter.
+    Tolerant: if JSON is malformed, returns an empty ParsedOutput
+    with parse_success=False rather than crashing.
     """
     try:
         json_str = _extract_json(raw_text)

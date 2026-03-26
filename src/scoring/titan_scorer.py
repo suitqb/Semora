@@ -5,7 +5,7 @@ from ..parsing.output_parser import ParsedOutput
 from ..sampling.clip_loader import FrameAnnotation
 
 
-# Champs scorés pour les piétons — alignés sur les colonnes GT TITAN
+# Fields scored for pedestrians - aligned with TITAN GT columns
 _PERSON_FIELDS = [
     "atomic_action",
     "simple_context",
@@ -14,7 +14,7 @@ _PERSON_FIELDS = [
     "age",
 ]
 
-# Mapping nom de champ ParsedOutput → nom de colonne GT TITAN
+# Mapping of ParsedOutput field names to TITAN GT column names
 _GT_FIELD_MAP = {
     "atomic_action":  "Atomic Actions",
     "simple_context": "Simple Context",
@@ -50,13 +50,13 @@ class FieldScore:
 
 @dataclass
 class FrameScore:
-    """Score pour une frame donnée."""
+    """Score for a given frame."""
     clip_id: str
     center_frame: str
     model_name: str
     window_size: int
     parse_success: bool
-    person_scores: dict[str, FieldScore]   # field → FieldScore
+    person_scores: dict[str, FieldScore]   # field -> FieldScore
     vehicle_scores: dict[str, FieldScore]
 
 
@@ -65,8 +65,8 @@ def _score_field(
     gt_values: list[str],
     field: str,
 ) -> FieldScore:
-    """Score un champ catégoriel : matching exact sur les valeurs normalisées."""
-    # On s'assure que chaque valeur est une string pour éviter les erreurs sur d'éventuels NaN (floats)
+    """Score a categorical field: exact matching on normalized values."""
+    # Ensure all values are strings to handle NaN (floats) correctly
     pred_set = {str(v).strip().lower() for v in pred_values if v is not None and str(v).strip()}
     gt_set   = {str(v).strip().lower() for v in gt_values   if v is not None and str(v).strip()}
 
@@ -84,20 +84,20 @@ def score_frame(
     center_frame: str,
     window_size: int,
 ) -> FrameScore:
-    """Compare ParsedOutput vs FrameAnnotation GT et retourne un FrameScore."""
+    """Compare ParsedOutput vs FrameAnnotation GT and return a FrameScore."""
 
     person_scores: dict[str, FieldScore] = {}
     vehicle_scores: dict[str, FieldScore] = {}
 
     if parsed.parse_success:
-        # --- Piétons ---
+        # Pedestrians
         for field in _PERSON_FIELDS:
             gt_col = _GT_FIELD_MAP[field]
             pred_vals = [p.get(field, "") for p in parsed.pedestrians]
             gt_vals   = [p.get(gt_col, "") for p in annotation.persons]
             person_scores[field] = _score_field(pred_vals, gt_vals, field)
 
-        # --- Véhicules ---
+        # Vehicles
         for field in ["motion_status", "trunk_open", "doors_open"]:
             gt_col = _GT_FIELD_MAP[field]
             pred_vals = [v.get(field, "") for v in parsed.vehicles]

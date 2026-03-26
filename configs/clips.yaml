@@ -1,6 +1,6 @@
 dataset: TITAN
 
-# Colonnes GT disponibles dans les CSV :
+# GT Columns available in CSVs:
 #   persons  → Atomic Actions, Simple Context, Complex Contextual,
 #               Communicative, Transporting, Age + bbox + obj_track_id
 #   vehicles → Motion Status, Trunk Open, Doors Open + bbox + obj_track_id
@@ -81,7 +81,7 @@ clips:
 
 sampling:
   target_fps: null
-  window_sizes: [2, 4, 6, 8]
+  window_sizes: [2, 4]
   frame_selection: uniform
   max_resolution: [1280, 720]
   step: 50
