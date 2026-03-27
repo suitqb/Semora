@@ -31,9 +31,12 @@ class Mistral(BaseVLM):
         if not server_url or "${" in server_url:
             server_url = os.environ.get("MISTRAL_API_BASE")
 
+        # Mistral client can be sensitive to empty strings for server_url
+        effective_url = server_url.strip() if (server_url and server_url.strip()) else None
+
         self._client = MistralClient(
             api_key=api_key,
-            server_url=server_url
+            server_url=effective_url
         )
 
         self._model_id = self.config["model_id"]

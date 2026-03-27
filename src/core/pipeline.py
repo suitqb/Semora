@@ -78,11 +78,12 @@ def load_pipeline(
 
     clips = load_all_clips(clips_cfg)
     models = build_models(models_cfg)
+    model_names = ", ".join(models.keys())
 
     header = Panel(
         f"[bold blue]Run ID:[/bold blue] {run_id}\n"
         f"[bold blue]Clips:[/bold blue] {len(clips)} | "
-        f"[bold blue]Models:[/bold blue] {len(models)} | "
+        f"[bold blue]Models ({len(models)}):[/bold blue] {model_names}\n"
         f"[bold blue]Windows:[/bold blue] {sampling_cfg['window_sizes']}",
         title="[bold white]Semora Benchmark[/bold white]",
         border_style="bright_magenta",

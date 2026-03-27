@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from ..parsing.output_parser import ParsedOutput
 from ..sampling.clip_loader import FrameAnnotation
@@ -121,13 +121,17 @@ def judge(
                 api_key=os.environ.get("OPENAI_API_KEY"),
                 base_url=os.environ.get("OPENAI_API_BASE"),
             )
-            response = client.chat.completions.create(
-                model=model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"} if "gpt-4" in model_id or "gpt-4o" in model_id else None
-            )
+            
+            kwargs: dict[str, Any] = {
+                "model": model_id,
+                "messages": cast(Any, messages),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if "gpt-4" in model_id or "gpt-4o" in model_id:
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = client.chat.completions.create(**kwargs)
             raw_content = response.choices[0].message.content
 
         elif backend == "mistral_api":
@@ -138,7 +142,7 @@ def judge(
             )
             response = client.chat.complete(
                 model=model_id,
-                messages=messages,
+                messages=cast(Any, messages),
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
