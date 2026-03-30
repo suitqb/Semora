@@ -62,11 +62,12 @@ class JudgeScore:
     judge_error: str | None
 
 
-def _format_extraction(parsed: ParsedOutput) -> str:
+def _format_extraction(parsed: ParsedOutput, window_size: int) -> str:
+    center = parsed.center_frame_output(window_size)
     return json.dumps({
-        "scene_context": parsed.scene_context,
-        "pedestrians":   parsed.pedestrians,
-        "vehicles":      parsed.vehicles,
+        "scene_context": center.scene_context,
+        "pedestrians":   center.pedestrians,
+        "vehicles":      center.vehicles,
     }, indent=2)
 
 
@@ -105,7 +106,7 @@ def judge(
     max_tokens  = judge_cfg.get("max_tokens", 1024)
 
     try:
-        extraction_text = _format_extraction(parsed)
+        extraction_text = _format_extraction(parsed, window_size)
         gt_text         = _format_gt(annotation)
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},

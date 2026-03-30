@@ -1,19 +1,33 @@
 """
-analyze_temporal.py — Temporal consistency analysis (PT-02)
+analyze_temporal.py — Temporal consistency analysis via track_hint matching
 
-For each (model, clip, track_id, field), reconstructs the ordered sequence
-of frame-level F1 scores on frames where that pedestrian appears, then
-computes an instability rate:
+Measures whether a VLM describes the same pedestrian consistently across the
+frames of each batch, by checking that the `track_hint` it assigned to each
+pedestrian in the center frame reappears (verbatim or near-verbatim) in every
+other frame of the same window.
 
-    instability = nb_f1_changes / (nb_frames - 1)
+Metric per batch:
+    consistency_rate = (# center-frame track_hints found in ALL other frames)
+                       / (# track_hints in center frame)
 
-A "change" occurs when the field's F1 score differs between two consecutive
-frames where the same track_id is present.
+    - Matching: exact string first, then Jaccard on tokens ≥ 0.6
+    - Batches with no pedestrians in the center frame are skipped.
+    - Batches with parse_success=False are skipped.
+
+Aggregated by (model, N):
+    mean_consistency    — average over all valid batches
+    median_consistency
+    pct_fully_stable    — % of batches where consistency_rate == 1.0
+
+Input: parsed_outputs.jsonl produced by the pipeline (save_parsed_outputs: true).
+Each line format:
+    {"model": "...", "N": 4, "clip_id": "...", "center_frame": "...",
+     "parse_success": true,
+     "parsed": {"frames": [{"scene_context":{}, "pedestrians":[...], "vehicles":[...]}, ...]}}
 
 Usage:
     python analyze_temporal.py \\
-        --results  results/runs/20240101_120000/raw_outputs.jsonl \\
-        --clips-cfg configs/clips.yaml \\
+        --results results/runs/<run>/parsed_outputs.jsonl \\
         [--output-dir outputs/]
 """
 
@@ -26,134 +40,129 @@ import statistics
 from collections import defaultdict
 from pathlib import Path
 
-import yaml
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
 load_dotenv()
 
-from src.sampling.clip_loader import load_all_clips, TITANClip  # noqa: E402
-
 console = Console()
 
-PERSON_FIELDS = ["atomic_action", "simple_context", "communicative", "transporting", "age"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Track-hint matching
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _jaccard(a: str, b: str) -> float:
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def _hint_found(hint: str, candidates: list[str], threshold: float = 0.6) -> bool:
+    """Return True if `hint` matches any candidate (exact or Jaccard ≥ threshold)."""
+    if hint in candidates:
+        return True
+    return any(_jaccard(hint, c) >= threshold for c in candidates)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Data loading
+# Center frame index
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_results(path: Path) -> list[dict]:
-    records: list[dict] = []
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    return records
+def _center_idx(window_size: int) -> int:
+    """0-based index of the center (scored) frame in the frames list."""
+    return window_size // 2 if window_size % 2 == 1 else window_size - 1
 
 
-def index_results(records: list[dict]) -> dict[tuple[str, int, str, str], dict]:
-    """Index by (model_name, window_size, clip_id, center_frame).
+# ─────────────────────────────────────────────────────────────────────────────
+# Consistency computation
+# ─────────────────────────────────────────────────────────────────────────────
 
-    If window_size is absent from the record (older format), defaults to 0.
+def _batch_consistency(frames_data: list[dict], window_size: int) -> float | None:
+    """Compute consistency_rate for one batch.
+
+    Returns None if the batch should be skipped (no pedestrians in center frame,
+    or only one frame in the window).
     """
-    idx: dict[tuple[str, int, str, str], dict] = {}
-    for r in records:
-        key = (
-            r["model_name"],
-            r.get("window_size", 0),
-            r["clip_id"],
-            r["center_frame"],
-        )
-        idx[key] = r
-    return idx
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# GT track sequences
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_track_sequences(clips: list[TITANClip]) -> dict[str, dict[str, list[str]]]:
-    """Return {clip_id: {track_id: [frame_name, ...]}} in chronological order."""
-    result: dict[str, dict[str, list[str]]] = {}
-    for clip in clips:
-        track_frames: dict[str, list[str]] = defaultdict(list)
-        for frame_name in clip.frame_names:          # already sorted chronologically
-            ann = clip.annotations.get(frame_name)
-            if ann is None:
-                continue
-            for person in ann.persons:
-                track_id = str(person.get("obj_track_id", "")).strip()
-                if track_id:
-                    track_frames[track_id].append(frame_name)
-        result[clip.clip_id] = dict(track_frames)
-    return result
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# F1 extraction from a FrameScore record
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _f1_from_record(record: dict, field: str) -> float | None:
-    """Extract F1 for a person field from a FrameScore dict. Returns None if absent."""
-    fs = record.get("person_scores", {}).get(field)
-    if fs is None:
+    if len(frames_data) < 2:
         return None
-    tp = fs.get("tp", 0)
-    fp = fs.get("fp", 0)
-    fn = fs.get("fn", 0)
-    denom = 2 * tp + fp + fn
-    return (2 * tp / denom) if denom > 0 else 0.0
+
+    ci = _center_idx(window_size)
+    if ci >= len(frames_data):
+        ci = len(frames_data) - 1
+
+    center_hints: list[str] = [
+        p.get("track_hint", "").strip()
+        for p in frames_data[ci].get("pedestrians", [])
+        if p.get("track_hint", "").strip()
+    ]
+    if not center_hints:
+        return None
+
+    # Other frame indices
+    other_indices = [i for i in range(len(frames_data)) if i != ci]
+
+    found_in_all = 0
+    for hint in center_hints:
+        present_in_every_frame = all(
+            _hint_found(
+                hint,
+                [p.get("track_hint", "").strip() for p in frames_data[i].get("pedestrians", [])],
+            )
+            for i in other_indices
+        )
+        if present_in_every_frame:
+            found_in_all += 1
+
+    return found_in_all / len(center_hints)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Instability computation
+# JSONL loading & processing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_instability(
-    records_idx: dict[tuple[str, int, str, str], dict],
-    track_sequences: dict[str, dict[str, list[str]]],
-    models: list[str],
-    window_sizes: list[int],
-) -> list[dict]:
-    """Return flat list of per-(model, window_size, clip, track_id, field) instability."""
+def process_results(path: Path) -> list[dict]:
+    """Return per-batch consistency rows from parsed_outputs.jsonl."""
     rows: list[dict] = []
+    n_skipped_parse = 0
+    n_skipped_empty = 0
 
-    for model in models:
-        for ws in window_sizes:
-            for clip_id, track_frames in track_sequences.items():
-                for track_id, frame_list in track_frames.items():
-                    # Collect (frame, record) pairs with parse_success=True
-                    valid: list[tuple[str, dict]] = []
-                    for frame_name in frame_list:
-                        rec = records_idx.get((model, ws, clip_id, frame_name))
-                        if rec is not None and rec.get("parse_success", False):
-                            valid.append((frame_name, rec))
+    with open(path) as f:
+        for raw_line in f:
+            raw_line = raw_line.strip()
+            if not raw_line:
+                continue
 
-                    if len(valid) < 2:
-                        continue  # need ≥ 2 frames to compute instability
+            rec = json.loads(raw_line)
 
-                    for field in PERSON_FIELDS:
-                        f1_seq = [_f1_from_record(rec, field) for _, rec in valid]
-                        f1_seq = [v for v in f1_seq if v is not None]
-                        if len(f1_seq) < 2:
-                            continue
+            if not rec.get("parse_success", False):
+                n_skipped_parse += 1
+                continue
 
-                        n_changes = sum(
-                            1 for a, b in zip(f1_seq, f1_seq[1:])
-                            if round(a, 4) != round(b, 4)
-                        )
-                        rows.append({
-                            "model_name":   model,
-                            "window_size":  ws,
-                            "clip_id":      clip_id,
-                            "track_id":     track_id,
-                            "field":        field,
-                            "instability":  n_changes / (len(f1_seq) - 1),
-                            "n_frames":     len(f1_seq),
-                        })
+            parsed = rec.get("parsed", {})
+            frames_data: list[dict] = parsed.get("frames", [])
+            window_size: int = rec.get("N", len(frames_data))
+
+            rate = _batch_consistency(frames_data, window_size)
+            if rate is None:
+                n_skipped_empty += 1
+                continue
+
+            rows.append({
+                "model":            rec["model"],
+                "window_size":      window_size,
+                "clip_id":          rec.get("clip_id", ""),
+                "center_frame":     rec.get("center_frame", ""),
+                "consistency_rate": rate,
+            })
+
+    if n_skipped_parse:
+        console.print(f"  [dim]→ {n_skipped_parse} batches skipped (parse_success=False)[/dim]")
+    if n_skipped_empty:
+        console.print(f"  [dim]→ {n_skipped_empty} batches skipped (no pedestrians in center frame or single frame)[/dim]")
 
     return rows
 
@@ -163,21 +172,19 @@ def compute_instability(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def aggregate(rows: list[dict]) -> list[dict]:
-    groups: dict[tuple[str, int, str], list[float]] = defaultdict(list)
+    groups: dict[tuple[str, int], list[float]] = defaultdict(list)
     for row in rows:
-        key = (row["model_name"], row["window_size"], row["field"])
-        groups[key].append(row["instability"])
+        groups[(row["model"], row["window_size"])].append(row["consistency_rate"])
 
     results: list[dict] = []
-    for (model, ws, field), values in sorted(groups.items()):
+    for (model, ws), values in sorted(groups.items()):
         results.append({
-            "model_name":        model,
-            "window_size":       ws,
-            "field":             field,
-            "n_tracks":          len(values),
-            "mean_instability":  statistics.mean(values),
-            "median_instability": statistics.median(values),
-            "pct_unstable":      sum(1 for v in values if v > 0) / len(values) * 100,
+            "model_name":         model,
+            "window_size":        ws,
+            "n_batches":          len(values),
+            "mean_consistency":   statistics.mean(values),
+            "median_consistency": statistics.median(values),
+            "pct_fully_stable":   sum(1 for v in values if v == 1.0) / len(values) * 100,
         })
     return results
 
@@ -195,27 +202,29 @@ def save_csv(agg: list[dict], path: Path) -> None:
         writer.writerows(agg)
 
 
-def print_tables(agg: list[dict]) -> None:
-    # Group by (model, window_size)
-    groups: dict[tuple[str, int], list[dict]] = defaultdict(list)
+def print_table(agg: list[dict]) -> None:
+    # Group by model for one table per model
+    by_model: dict[str, list[dict]] = defaultdict(list)
     for row in agg:
-        groups[(row["model_name"], row["window_size"])].append(row)
+        by_model[row["model_name"]].append(row)
 
-    for (model, ws), rows in sorted(groups.items()):
-        table = Table(title=f"{model}  |  window_size={ws}", show_header=True, header_style="bold")
-        table.add_column("Field",               style="cyan")
-        table.add_column("Tracks",              justify="right")
-        table.add_column("Mean instability",    justify="right")
-        table.add_column("Median instability",  justify="right")
-        table.add_column("% Unstable",          justify="right")
+    for model, rows in sorted(by_model.items()):
+        table = Table(title=f"Temporal Consistency — {model}", show_header=True, header_style="bold")
+        table.add_column("Window size",        justify="center")
+        table.add_column("Batches",            justify="right")
+        table.add_column("Mean consistency",   justify="right")
+        table.add_column("Median consistency", justify="right")
+        table.add_column("% Fully stable",     justify="right")
 
         for row in rows:
+            mean = row["mean_consistency"]
+            color = "green" if mean >= 0.8 else ("yellow" if mean >= 0.5 else "red")
             table.add_row(
-                row["field"],
-                str(row["n_tracks"]),
-                f"{row['mean_instability']:.3f}",
-                f"{row['median_instability']:.3f}",
-                f"{row['pct_unstable']:.1f}%",
+                str(row["window_size"]),
+                str(row["n_batches"]),
+                f"[{color}]{mean:.3f}[/{color}]",
+                f"{row['median_consistency']:.3f}",
+                f"{row['pct_fully_stable']:.1f}%",
             )
         console.print(table)
         console.print()
@@ -227,49 +236,31 @@ def print_tables(agg: list[dict]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Temporal consistency analysis (PT-02)",
+        description="Temporal consistency analysis — track_hint stability across frames",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--results",    required=True, type=Path,
-                        help="FrameScore JSONL file (e.g. results/runs/<run>/raw_outputs.jsonl)")
-    parser.add_argument("--clips-cfg",  required=True, type=Path,
-                        help="Path to clips.yaml")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs"),
-                        help="Directory where the CSV will be saved")
+    parser.add_argument(
+        "--results", required=True, type=Path,
+        help="parsed_outputs.jsonl from a Semora run (save_parsed_outputs: true)",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=Path("outputs"),
+        help="Directory where the CSV will be written",
+    )
     args = parser.parse_args()
 
-    # ── Load JSONL ────────────────────────────────────────────────────────────
-    console.print(f"[bold]Loading results:[/bold] {args.results}")
-    records = load_results(args.results)
-    console.print(f"  → {len(records):,} records")
+    if not args.results.exists():
+        console.print(f"[bold red]File not found:[/bold red] {args.results}")
+        raise SystemExit(1)
 
-    models      = sorted({r["model_name"]         for r in records})
-    window_sizes = sorted({r.get("window_size", 0) for r in records})
-    console.print(f"  → Models: {', '.join(models)}")
-    console.print(f"  → Window sizes: {window_sizes}")
-
-    records_idx = index_results(records)
-
-    # ── Load GT clips ─────────────────────────────────────────────────────────
-    console.print(f"\n[bold]Loading GT clips:[/bold] {args.clips_cfg}")
-    with open(args.clips_cfg) as f:
-        clips_cfg = yaml.safe_load(f)
-    clips = load_all_clips(clips_cfg)
-    console.print(f"  → {len(clips)} clip(s) loaded")
-
-    # ── Build track sequences ─────────────────────────────────────────────────
-    track_sequences = build_track_sequences(clips)
-    n_tracks = sum(len(v) for v in track_sequences.values())
-    console.print(f"  → {n_tracks} unique track(s) across all clips")
-
-    # ── Compute instability ───────────────────────────────────────────────────
-    console.print("\n[bold]Computing temporal instability…[/bold]")
-    rows = compute_instability(records_idx, track_sequences, models, window_sizes)
-    console.print(f"  → {len(rows):,} (track × field) sequences analyzed")
+    # ── Process ──────────────────────────────────────────────────────────────
+    console.print(f"[bold]Loading:[/bold] {args.results}")
+    rows = process_results(args.results)
+    console.print(f"  → {len(rows):,} valid batches analyzed")
 
     if not rows:
-        console.print("[yellow]No sequences found. Check that center_frame names in the "
-                      "JSONL match the frame filenames in the clips.[/yellow]")
+        console.print("[yellow]No valid batches found. Make sure the run used prompt v2 "
+                      "(multi-frame output) and window_size > 1.[/yellow]")
         return
 
     # ── Aggregate ─────────────────────────────────────────────────────────────
@@ -277,12 +268,12 @@ def main() -> None:
 
     # ── Save CSV ──────────────────────────────────────────────────────────────
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = args.output_dir / f"temporal_consistency_{args.results.stem}.csv"
+    csv_path = args.output_dir / f"temporal_consistency_{args.results.parent.name}.csv"
     save_csv(agg, csv_path)
     console.print(f"\n[bold green]CSV saved:[/bold green] {csv_path}\n")
 
     # ── Print tables ──────────────────────────────────────────────────────────
-    print_tables(agg)
+    print_table(agg)
 
 
 if __name__ == "__main__":

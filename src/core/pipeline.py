@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 import json
 import traceback
 from datetime import datetime
@@ -70,7 +71,23 @@ def load_pipeline(
             models_cfg[m_key]["enabled"] = m_key in selected_models
 
     sampling_cfg = clips_cfg["sampling"]
-    prompt = Path(benchmark_cfg["prompt"]["file"]).read_text().strip()
+    prompt_cfg = benchmark_cfg["prompt"]
+    if "version" in prompt_cfg:
+        prompt_file = Path(f"prompts/extraction_{prompt_cfg['version']}.txt")
+    else:
+        prompt_file = Path(prompt_cfg["file"])
+    prompt = prompt_file.read_text().strip()
+
+    # Warn if max_new_tokens is too low for multi-frame output
+    max_ws = max(sampling_cfg["window_sizes"], default=1)
+    if max_ws > 1:
+        for m_name, m_cfg in models_cfg.items():
+            if m_cfg.get("enabled") and m_cfg.get("max_new_tokens", 512) < 1000:
+                console.print(
+                    f"[yellow]⚠  {m_name}: max_new_tokens={m_cfg.get('max_new_tokens', 512)} "
+                    f"but window_size goes up to {max_ws}. "
+                    f"Consider setting max_new_tokens ≥ 1000.[/yellow]"
+                )
 
     run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = Path(benchmark_cfg["output"]["results_dir"]) / run_id
@@ -138,10 +155,10 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                                 with open(raw_log_path, "a") as f:
                                     f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "raw_text": vlm_out.raw_text, "latency_s": vlm_out.latency_s}) + "\n")
 
-                            parsed = parse(vlm_out.raw_text)
+                            parsed = parse(vlm_out.raw_text, window_size=N)
                             if context.benchmark_cfg["output"].get("save_parsed_outputs"):
                                 with open(parsed_log_path, "a") as f:
-                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "parse_success": parsed.parse_success, "parsed": parsed.__dict__}) + "\n")
+                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n")
 
                             frame_score = score_frame(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N)
                             all_scores.append(frame_score)

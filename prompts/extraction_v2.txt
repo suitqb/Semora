@@ -1,0 +1,62 @@
+You are analyzing N frames from a driving scene captured by an ego vehicle.
+The frames are provided in chronological order, numbered from 1 to N.
+
+Your task is to extract structured semantic information for EACH frame independently.
+
+Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
+
+CRITICAL — NUMBER OF KEYS:
+You MUST return exactly as many frame keys as there are images in this message.
+If you receive 2 images → your JSON must have exactly "frame_1" and "frame_2".
+If you receive 4 images → your JSON must have exactly "frame_1", "frame_2", "frame_3" and "frame_4".
+Returning fewer keys than images received is an error. Every image must have its own key.
+
+CRITICAL CONSISTENCY RULE: If the same person or vehicle is visible across multiple frames,
+their `track_hint` MUST be IDENTICAL in every frame where they appear.
+Use the exact same string — do not paraphrase, abbreviate, or reword it.
+Example: if you write "person in blue jacket on the left" in frame_1,
+you must write exactly "person in blue jacket on the left" in frame_2, frame_3, etc.
+
+The JSON must follow this exact schema — repeat the structure for EVERY frame:
+
+{
+  "frame_1": {
+    "scene_context": {
+      "location": "<one of: road, sidewalk, crosswalk, intersection, parking, other>",
+      "description": "<one sentence describing the overall scene>"
+    },
+    "pedestrians": [
+      {
+        "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
+        "atomic_action": "<one of: walking, running, standing, sitting, bending, biking, motorcycling, other>",
+        "simple_context": "<one of: walking along the side of the road, crossing the road, waiting to cross, jaywalking, walking on the sidewalk, standing on the sidewalk, other>",
+        "communicative": "<one of: none of the above, looking at phone, talking on phone, talking to someone, other>",
+        "transporting": "<one of: none of the above, pushing cart, carrying bag, with stroller, other>",
+        "age": "<one of: child, adult, senior>",
+        "spatial_relations": ["<relation to another entity or scene element>"]
+      }
+    ],
+    "vehicles": [
+      {
+        "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
+        "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
+        "motion_status": "<one of: stopped, moving, parked, other>",
+        "trunk_open": "<one of: open, closed, unknown>",
+        "doors_open": "<one of: open, closed, unknown>",
+        "spatial_relations": ["<relation to another entity or scene element>"]
+      }
+    ]
+  },
+  "frame_2": {
+    "scene_context": { same structure as frame_1 },
+    "pedestrians": [ same structure as frame_1 ],
+    "vehicles": [ same structure as frame_1 ]
+  }
+}
+
+Rules:
+- Describe each frame based only on what is visible in that specific frame.
+- If no pedestrians are visible in a frame, set "pedestrians" to [].
+- If no vehicles are visible in a frame, set "vehicles" to [].
+- Use only the allowed values listed for each field. Do not invent new categories.
+- You MUST produce one "frame_K" key for every image received, from frame_1 to frame_N.

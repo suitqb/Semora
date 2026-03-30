@@ -3,7 +3,8 @@ benchmark:
   seed: 42
 
   prompt:
-    file: prompts/extraction_v1.txt
+    version: v2           # selects prompts/extraction_v2.txt (multi-frame)
+    # version: v1         # legacy single-frame prompt
 
   scorers:
     titan_gt: true      # precision / recall / F1 vs TITAN CSV annotations

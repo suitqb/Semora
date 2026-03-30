@@ -66,7 +66,6 @@ def _score_field(
     field: str,
 ) -> FieldScore:
     """Score a categorical field: exact matching on normalized values."""
-    # Ensure all values are strings to handle NaN (floats) correctly
     pred_set = {str(v).strip().lower() for v in pred_values if v is not None and str(v).strip()}
     gt_set   = {str(v).strip().lower() for v in gt_values   if v is not None and str(v).strip()}
 
@@ -84,23 +83,29 @@ def score_frame(
     center_frame: str,
     window_size: int,
 ) -> FrameScore:
-    """Compare ParsedOutput vs FrameAnnotation GT and return a FrameScore."""
+    """Compare ParsedOutput vs FrameAnnotation GT and return a FrameScore.
 
+    Scoring uses only the center frame from the multi-frame ParsedOutput:
+      - odd window_size  → middle frame (frames[window_size // 2])
+      - even window_size → last frame   (frames[-1])
+    """
     person_scores: dict[str, FieldScore] = {}
     vehicle_scores: dict[str, FieldScore] = {}
 
     if parsed.parse_success:
+        center = parsed.center_frame_output(window_size)
+
         # Pedestrians
         for field in _PERSON_FIELDS:
             gt_col = _GT_FIELD_MAP[field]
-            pred_vals = [p.get(field, "") for p in parsed.pedestrians]
+            pred_vals = [p.get(field, "") for p in center.pedestrians]
             gt_vals   = [p.get(gt_col, "") for p in annotation.persons]
             person_scores[field] = _score_field(pred_vals, gt_vals, field)
 
         # Vehicles
         for field in ["motion_status", "trunk_open", "doors_open"]:
             gt_col = _GT_FIELD_MAP[field]
-            pred_vals = [v.get(field, "") for v in parsed.vehicles]
+            pred_vals = [v.get(field, "") for v in center.vehicles]
             gt_vals   = [v.get(gt_col, "") for v in annotation.vehicles]
             vehicle_scores[field] = _score_field(pred_vals, gt_vals, field)
 

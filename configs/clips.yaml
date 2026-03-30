@@ -9,19 +9,12 @@ data_root: data/titan
 
 clips:
 
-  # - clip_id: clip_test
-  #   video_path: clips/clip_test/images
-  #   annotation_path: annotations/clip_test.csv
+  # - clip_id: clip_1
+  #   video_path: clips/clip_1/images
+  #   annotation_path: annotations/clip_1.csv
   #   split: benchmark
   #   fps_native: 10
   #   notes: ""
-
-  - clip_id: clip_1
-    video_path: clips/clip_1/images
-    annotation_path: annotations/clip_1.csv
-    split: benchmark
-    fps_native: 10
-    notes: ""
 
   # - clip_id: clip_75
   #   video_path: clips/clip_75/images
@@ -65,23 +58,23 @@ clips:
   #   fps_native: 10
   #   notes: ""
 
-  # - clip_id: clip_761
-  #   video_path: clips/clip_761/images
-  #   annotation_path: annotations/clip_761.csv
-  #   split: benchmark
-  #   fps_native: 10
-  #   notes: ""
+  - clip_id: clip_761
+    video_path: clips/clip_761/images
+    annotation_path: annotations/clip_761.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
 
-  # - clip_id: clip_785
-  #   video_path: clips/clip_785/images
-  #   annotation_path: annotations/clip_785.csv
-  #   split: benchmark
-  #   fps_native: 10
-  #   notes: ""
+  - clip_id: clip_785
+    video_path: clips/clip_785/images
+    annotation_path: annotations/clip_785.csv
+    split: benchmark
+    fps_native: 10
+    notes: ""
 
 sampling:
   target_fps: null
   window_sizes: [2, 4]
   frame_selection: uniform
   max_resolution: [1280, 720]
-  step: 50
+  step: 15
