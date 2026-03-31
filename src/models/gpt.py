@@ -49,13 +49,27 @@ class GPT(BaseVLM):
                 },
             })
 
+        max_tokens = self.config.get("max_new_tokens", 512)
+        base_kwargs: dict[str, Any] = {
+            "model": self._model_id,
+            "messages": cast(Any, [{"role": "user", "content": content}]),
+            "temperature": self.config.get("temperature", 0.0),
+        }
+
         t0 = time.perf_counter()
-        response = self._client.chat.completions.create(
-            model=self._model_id,
-            messages=cast(Any, [{"role": "user", "content": content}]),
-            max_tokens=self.config.get("max_new_tokens", 512),
-            temperature=self.config.get("temperature", 0.0),
-        )
+        # Try max_completion_tokens (newer models), fall back to max_tokens, then no limit
+        for extra in (
+            {"max_completion_tokens": max_tokens},
+            {"max_tokens": max_tokens},
+            {},
+        ):
+            try:
+                response = self._client.chat.completions.create(**base_kwargs, **extra)
+                break
+            except Exception as e:
+                if "extra_forbidden" in str(e) or "unsupported_parameter" in str(e) or "not supported" in str(e).lower():
+                    continue
+                raise
         latency = time.perf_counter() - t0
 
         raw_text = response.choices[0].message.content or ""

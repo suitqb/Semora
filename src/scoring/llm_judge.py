@@ -118,9 +118,11 @@ def judge(
 
         if backend == "openai_api":
             from openai import OpenAI
+            raw_key = judge_cfg.get("api_key", "${OPENAI_API_KEY}")
+            raw_url = judge_cfg.get("base_url", "${OPENAI_API_BASE}")
             client = OpenAI(
-                api_key=os.environ.get("OPENAI_API_KEY"),
-                base_url=os.environ.get("OPENAI_API_BASE"),
+                api_key=os.path.expandvars(raw_key),
+                base_url=os.path.expandvars(raw_url),
             )
             
             kwargs: dict[str, Any] = {

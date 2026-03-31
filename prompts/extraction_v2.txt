@@ -8,6 +8,7 @@ Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
 CRITICAL — NUMBER OF KEYS:
 You MUST return exactly as many frame keys as there are images in this message.
 If you receive 2 images → your JSON must have exactly "frame_1" and "frame_2".
+If you receive 3 images → your JSON must have exactly "frame_1", "frame_2" and "frame_3".
 If you receive 4 images → your JSON must have exactly "frame_1", "frame_2", "frame_3" and "frame_4".
 Returning fewer keys than images received is an error. Every image must have its own key.
 
@@ -17,7 +18,7 @@ Use the exact same string — do not paraphrase, abbreviate, or reword it.
 Example: if you write "person in blue jacket on the left" in frame_1,
 you must write exactly "person in blue jacket on the left" in frame_2, frame_3, etc.
 
-The JSON must follow this exact schema — repeat the structure for EVERY frame:
+The JSON must follow this exact schema — one entry per frame received:
 
 {
   "frame_1": {
@@ -28,11 +29,11 @@ The JSON must follow this exact schema — repeat the structure for EVERY frame:
     "pedestrians": [
       {
         "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
-        "atomic_action": "<one of: walking, running, standing, sitting, bending, biking, motorcycling, other>",
-        "simple_context": "<one of: walking along the side of the road, crossing the road, waiting to cross, jaywalking, walking on the sidewalk, standing on the sidewalk, other>",
-        "communicative": "<one of: none of the above, looking at phone, talking on phone, talking to someone, other>",
-        "transporting": "<one of: none of the above, pushing cart, carrying bag, with stroller, other>",
-        "age": "<one of: child, adult, senior>",
+        "atomic_action": "<one of: walking, running, standing, sitting, bending, squatting, laying down, jumping, none of the above>",
+        "simple_context": "<one of: walking along the side of the road, walking on the road, waiting to cross street, crossing a street at pedestrian crossing, jaywalking (illegally crossing NOT at pedestrian crossing), entering a building, exiting a building, biking, motorcycling, none of the above>",
+        "communicative": "<one of: none of the above, looking into phone, talking on phone, talking in group>",
+        "transporting": "<one of: none of the above, carrying with both hands, pushing, pulling>",
+        "age": "<one of: child, adult, senior over 65>",
         "spatial_relations": ["<relation to another entity or scene element>"]
       }
     ],
@@ -40,7 +41,7 @@ The JSON must follow this exact schema — repeat the structure for EVERY frame:
       {
         "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
         "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
-        "motion_status": "<one of: stopped, moving, parked, other>",
+        "motion_status": "<one of: stopped, moving, parked>",
         "trunk_open": "<one of: open, closed, unknown>",
         "doors_open": "<one of: open, closed, unknown>",
         "spatial_relations": ["<relation to another entity or scene element>"]
@@ -48,15 +49,25 @@ The JSON must follow this exact schema — repeat the structure for EVERY frame:
     ]
   },
   "frame_2": {
-    "scene_context": { same structure as frame_1 },
-    "pedestrians": [ same structure as frame_1 ],
-    "vehicles": [ same structure as frame_1 ]
+    "scene_context": { "location": "...", "description": "..." },
+    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
+  },
+  "frame_3": {
+    "scene_context": { "location": "...", "description": "..." },
+    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
+  },
+  "frame_4": {
+    "scene_context": { "location": "...", "description": "..." },
+    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
   }
 }
 
 Rules:
+- Produce exactly one "frame_K" key per image received, from frame_1 to frame_N. No more, no less.
 - Describe each frame based only on what is visible in that specific frame.
 - If no pedestrians are visible in a frame, set "pedestrians" to [].
 - If no vehicles are visible in a frame, set "vehicles" to [].
 - Use only the allowed values listed for each field. Do not invent new categories.
-- You MUST produce one "frame_K" key for every image received, from frame_1 to frame_N.

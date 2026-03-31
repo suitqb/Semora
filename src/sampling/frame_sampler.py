@@ -9,11 +9,12 @@ from .clip_loader import TITANClip, FrameAnnotation
 class FrameWindow:
     """A window = N consecutive frames centered on a target frame."""
     clip_id: str
-    center_frame: str           # target frame (scored against GT)
-    frame_names: list[str]      # N frames in chronological order
-    frames: list[Image.Image]   # corresponding PIL images
-    annotation: FrameAnnotation # GT for the target frame only
-    window_size: int            # requested N (may differ at clip edges)
+    center_frame: str                        # target frame (reference for judge)
+    frame_names: list[str]                   # N frames in chronological order
+    frames: list[Image.Image]                # corresponding PIL images
+    annotation: FrameAnnotation              # GT for the center frame (used by judge)
+    annotations: list[FrameAnnotation | None]  # GT for each frame in the window (None if no GT)
+    window_size: int                         # requested N (may differ at clip edges)
 
 
 def _select_indices(
@@ -95,6 +96,7 @@ def sample_windows(
             frame_names=selected,
             frames=clip.get_frames(selected, max_resolution),
             annotation=clip.annotations[center_name],
+            annotations=[clip.annotations.get(fn) for fn in selected],
             window_size=window_size,
         ))
 

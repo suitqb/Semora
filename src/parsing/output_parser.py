@@ -63,6 +63,27 @@ def _extract_json(text: str) -> str:
     return text[start:]
 
 
+def _recover_partial_frames(text: str) -> dict:
+    """Try to extract complete frame_N blocks from a truncated JSON response."""
+    recovered: dict = {}
+    for match in re.finditer(r'"(frame_\d+)"\s*:\s*(\{)', text):
+        key = match.group(1)
+        start = match.start(2)
+        depth = 0
+        for i, ch in enumerate(text[start:], start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        recovered[key] = json.loads(text[start : i + 1])
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+                    break
+    return recovered
+
+
 def _frame_output_from_dict(d: dict) -> FrameOutput:
     return FrameOutput(
         scene_context=d.get("scene_context", {}),
@@ -72,19 +93,29 @@ def _frame_output_from_dict(d: dict) -> FrameOutput:
 
 
 def _parse_multi_frame(data: dict, window_size: int) -> ParsedOutput:
-    """Parse a v2 response: {"frame_1": {...}, "frame_2": {...}, ...}."""
+    """Parse a v2 response: {"frame_1": {...}, "frame_2": {...}, ...}.
+
+    Lenient: accepts partial responses (e.g. model stopped before last frame).
+    parse_success=True if the center frame is present; False otherwise.
+    """
     frames: list[FrameOutput] = []
     for i in range(1, window_size + 1):
         key = f"frame_{i}"
         if key not in data:
-            return ParsedOutput(
-                frames=[],
-                parse_success=False,
-                parse_error=f"Missing key '{key}' in response (expected {window_size} frames)",
-            )
+            break
         frames.append(_frame_output_from_dict(data[key]))
 
-    return ParsedOutput(frames=frames, parse_success=True, parse_error=None)
+    if not frames:
+        return ParsedOutput(frames=[], parse_success=False,
+                            parse_error=f"No frame_N keys found in response")
+
+    # Center frame index (same convention as center_frame_output)
+    center_idx = window_size // 2 if window_size % 2 == 1 else window_size - 1
+    has_center = len(frames) > center_idx
+
+    n_got = len(frames)
+    error = None if n_got == window_size else f"Got {n_got}/{window_size} frames"
+    return ParsedOutput(frames=frames, parse_success=has_center, parse_error=error)
 
 
 def _parse_single_frame(data: dict) -> ParsedOutput:
@@ -118,7 +149,10 @@ def parse(raw_text: str, window_size: int = 1) -> ParsedOutput:
         json_str = _extract_json(raw_text)
         data = json.loads(json_str)
     except (json.JSONDecodeError, ValueError) as e:
-        return ParsedOutput(frames=[], parse_success=False, parse_error=str(e))
+        # Attempt partial recovery: extract complete frame_N blocks individually
+        data = _recover_partial_frames(raw_text)
+        if not data:
+            return ParsedOutput(frames=[], parse_success=False, parse_error=str(e))
 
     # Detect format: v2 if any "frame_N" key is present
     if any(k.startswith("frame_") for k in data):

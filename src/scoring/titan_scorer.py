@@ -75,6 +75,57 @@ def _score_field(
     return FieldScore(field=field, tp=tp, fp=fp, fn=fn)
 
 
+def score_window(
+    parsed: ParsedOutput,
+    annotations: list,  # list[FrameAnnotation | None]
+    model_name: str,
+    clip_id: str,
+    frame_names: list[str],
+    window_size: int,
+) -> list[FrameScore]:
+    """Score every frame in the window that has a GT annotation.
+
+    Returns one FrameScore per frame with a non-None annotation.
+    Frames where the ParsedOutput has no corresponding FrameOutput are skipped.
+    """
+    scores: list[FrameScore] = []
+    for i, (frame_name, annotation) in enumerate(zip(frame_names, annotations)):
+        if annotation is None:
+            continue
+        if not parsed.parse_success or i >= len(parsed.frames):
+            scores.append(FrameScore(
+                clip_id=clip_id, center_frame=frame_name,
+                model_name=model_name, window_size=window_size,
+                parse_success=False,
+                person_scores={}, vehicle_scores={},
+            ))
+            continue
+
+        frame_out = parsed.frames[i]
+        person_scores: dict[str, FieldScore] = {}
+        vehicle_scores: dict[str, FieldScore] = {}
+
+        for field in _PERSON_FIELDS:
+            gt_col = _GT_FIELD_MAP[field]
+            pred_vals = [p.get(field, "") for p in frame_out.pedestrians]
+            gt_vals   = [p.get(gt_col, "") for p in annotation.persons]
+            person_scores[field] = _score_field(pred_vals, gt_vals, field)
+
+        for field in ["motion_status", "trunk_open", "doors_open"]:
+            gt_col = _GT_FIELD_MAP[field]
+            pred_vals = [v.get(field, "") for v in frame_out.vehicles]
+            gt_vals   = [v.get(gt_col, "") for v in annotation.vehicles]
+            vehicle_scores[field] = _score_field(pred_vals, gt_vals, field)
+
+        scores.append(FrameScore(
+            clip_id=clip_id, center_frame=frame_name,
+            model_name=model_name, window_size=window_size,
+            parse_success=True,
+            person_scores=person_scores, vehicle_scores=vehicle_scores,
+        ))
+    return scores
+
+
 def score_frame(
     parsed: ParsedOutput,
     annotation: FrameAnnotation,

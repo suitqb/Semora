@@ -18,7 +18,7 @@ from ..models.registry import build_models
 from ..sampling.clip_loader import load_all_clips
 from ..sampling.frame_sampler import sample_windows
 from ..parsing.output_parser import parse
-from ..scoring.titan_scorer import score_frame
+from ..scoring.titan_scorer import score_window
 from ..scoring.llm_judge import judge
 from ..scoring.aggregator import aggregate
 
@@ -160,8 +160,8 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                                 with open(parsed_log_path, "a") as f:
                                     f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n")
 
-                            frame_score = score_frame(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N)
-                            all_scores.append(frame_score)
+                            frame_scores = score_window(parsed, window.annotations, model_name, clip.clip_id, window.frame_names, N)
+                            all_scores.extend(frame_scores)
 
                             judge_cfg = context.benchmark_cfg["scorers"].get("llm_judge")
                             if judge_cfg and judge_cfg.get("enabled"):
