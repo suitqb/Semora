@@ -4,6 +4,61 @@ import base64
 from io import BytesIO
 from typing import Any
 from PIL import Image
+from .console import console as _console
+DEBUG: bool = False
+
+
+def dbg(msg: str) -> None:
+    """Print a raw debug message — only when DEBUG is enabled."""
+    if DEBUG:
+        _console.print(f"  [dim]{msg}[/dim]")
+
+
+def dbg_frame(model: str, clip: str, frame: str, n: int) -> None:
+    if DEBUG:
+        _console.print(f"\n  [bold cyan]◆[/bold cyan] [bold]{model}[/bold] [dim]·[/dim] [white]{clip}/{frame}[/white] [dim]·[/dim] [cyan]N={n}[/cyan]")
+
+
+def dbg_infer(latency: float, prompt_tok: int | None, completion_tok: int | None, chars: int) -> None:
+    if DEBUG:
+        tok = f"{prompt_tok or '?'} → {completion_tok or '?'} tokens"
+        _console.print(f"    [green]✓ infer[/green]    [yellow]{latency:.1f}s[/yellow] · [dim]{tok} · {chars} chars[/dim]")
+
+
+def dbg_parse(success: bool, got: int, expected: int, error: str | None) -> None:
+    if DEBUG:
+        if success:
+            _console.print(f"    [green]✓ parse[/green]    [dim]{got}/{expected} frames[/dim]")
+        else:
+            detail = f" — {error}" if error else ""
+            _console.print(f"    [red]✗ parse[/red]    [dim]{got}/{expected} frames{detail}[/dim]")
+
+
+def dbg_judge(completeness: float, richness: float, spatial: float, overall: float) -> None:
+    if DEBUG:
+        color = "green" if overall >= 0.7 else ("yellow" if overall >= 0.4 else "red")
+        _console.print(
+            f"    [green]✓ judge[/green]    "
+            f"[dim]completeness=[/dim][white]{completeness:.2f}[/white]  "
+            f"[dim]richness=[/dim][white]{richness:.2f}[/white]  "
+            f"[dim]spatial=[/dim][white]{spatial:.2f}[/white]  "
+            f"[dim]overall=[/dim][{color}]{overall:.2f}[/{color}]"
+        )
+
+
+def dbg_judge_skip(reason: str) -> None:
+    if DEBUG:
+        _console.print(f"    [dim]─ judge    skipped ({reason})[/dim]")
+
+
+def dbg_judge_error(error: str) -> None:
+    if DEBUG:
+        _console.print(f"    [red]✗ judge[/red]    [dim]{error}[/dim]")
+
+
+def dbg_retry(attempt: int, max_retries: int, delay: int, error: str) -> None:
+    if DEBUG:
+        _console.print(f"    [yellow]⟳ retry[/yellow]    [dim]attempt {attempt}/{max_retries} in {delay}s — {error}[/dim]")
 
 def pil_to_b64(img: Image.Image) -> str:
     """

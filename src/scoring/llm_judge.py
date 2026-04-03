@@ -8,9 +8,7 @@ from ..parsing.output_parser import ParsedOutput
 from ..sampling.clip_loader import FrameAnnotation
 from ..core.utils import extract_vlm_text
 
-from rich.console import Console
-
-console = Console()
+from ..core.console import console
 
 _SYSTEM_PROMPT = """You are an expert evaluator for autonomous driving perception systems.
 You assess the quality of semantic extractions produced by Vision-Language Models (VLMs) on driving scenes.
@@ -125,16 +123,36 @@ def judge(
                 base_url=os.path.expandvars(raw_url),
             )
             
-            kwargs: dict[str, Any] = {
+            base_kwargs: dict[str, Any] = {
                 "model": model_id,
                 "messages": cast(Any, messages),
-                "temperature": temperature,
-                "max_tokens": max_tokens,
             }
             if "gpt-4" in model_id or "gpt-4o" in model_id:
-                kwargs["response_format"] = {"type": "json_object"}
+                base_kwargs["response_format"] = {"type": "json_object"}
 
-            response = client.chat.completions.create(**kwargs)
+            def _is_param_error(e: Exception) -> bool:
+                s = str(e)
+                return any(k in s for k in ("unsupported_parameter", "not supported", "extra_forbidden", "unsupported_value"))
+
+            response = None
+            for extra in (
+                {"max_completion_tokens": max_tokens, "temperature": temperature},
+                {"max_tokens": max_tokens,            "temperature": temperature},
+                {"max_completion_tokens": max_tokens},
+                {"max_tokens": max_tokens},
+                {},
+            ):
+                try:
+                    response = client.chat.completions.create(**base_kwargs, **extra)
+                    break
+                except Exception as e:
+                    if _is_param_error(e):
+                        continue
+                    raise
+
+            if response is None:
+                raise RuntimeError("No supported parameter combination found for judge model.")
+
             raw_content = response.choices[0].message.content
 
         elif backend == "mistral_api":
@@ -158,9 +176,13 @@ def judge(
         
         try:
             data = json.loads(raw_text)
-        except json.JSONDecodeError as je:
-            console.print(f"[bold red]⚠ Judge JSON Error ({model_id}):[/bold red]\n{raw_text}")
-            raise je
+        except json.JSONDecodeError:
+            try:
+                import ast
+                data = ast.literal_eval(raw_text)
+            except Exception as je:
+                console.print(f"[bold red]⚠ Judge JSON Error ({model_id}):[/bold red]\n{raw_text}")
+                raise je
 
         return JudgeScore(
             model_name=model_name, clip_id=clip_id,

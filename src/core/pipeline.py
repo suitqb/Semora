@@ -14,6 +14,8 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, MofNCompleteColumn
 from rich import box
 
+from ..core.console import console
+from ..core.utils import dbg, dbg_frame, dbg_parse, dbg_judge, dbg_judge_skip, dbg_judge_error
 from ..models.registry import build_models
 from ..sampling.clip_loader import load_all_clips
 from ..sampling.frame_sampler import sample_windows
@@ -28,8 +30,6 @@ if TYPE_CHECKING:
     from ..scoring.titan_scorer import FrameScore
     from ..scoring.llm_judge import JudgeScore
     from ..scoring.aggregator import ModelSummary
-
-console = Console()
 
 @dataclass
 class PipelineContext:
@@ -90,8 +90,10 @@ def load_pipeline(
                 )
 
     run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = Path(benchmark_cfg["output"]["results_dir"]) / run_id
+    results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / run_id
     results_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "raw").mkdir(exist_ok=True)
+    (results_dir / "report").mkdir(exist_ok=True)
 
     clips = load_all_clips(clips_cfg)
     models = build_models(models_cfg)
@@ -120,10 +122,6 @@ def run_inference(context: PipelineContext) -> InferenceResults:
     latencies: dict[tuple[str, int], list[float]] = {}
     token_counts: dict[tuple[str, int], dict[str, int]] = {}
 
-    raw_log_path    = context.results_dir / "raw_outputs.jsonl"
-    parsed_log_path = context.results_dir / "parsed_outputs.jsonl"
-    judge_log_path  = context.results_dir / "judge_outputs.jsonl"
-
     window_sizes = context.sampling_cfg["window_sizes"]
     strategy     = context.sampling_cfg.get("frame_selection", "uniform")
     max_res      = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
@@ -141,6 +139,11 @@ def run_inference(context: PipelineContext) -> InferenceResults:
         for N in window_sizes:
             key = (model_name, N)
             latencies[key], token_counts[key] = [], {"prompt": 0, "completion": 0}
+            _raw_dir = context.results_dir / "raw"
+            _prefix  = f"{model_name}_N{N}_"
+            raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
+            parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
+            judge_log_path  = _raw_dir / f"{_prefix}judge_outputs.jsonl"
             total_windows = sum(len(sample_windows(c, N, strategy, max_res, step)) for c in context.clips)
             
             with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(), console=console) as progress:
@@ -148,6 +151,7 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                 for clip in context.clips:
                     for window in sample_windows(clip, N, strategy, max_res, step):
                         try:
+                            dbg_frame(model_name, clip.clip_id, window.center_frame, N)
                             vlm_out = model.infer(window.frames, context.prompt)
                             vlm_out.clip_id, vlm_out.center_frame, vlm_out.frame_names = clip.clip_id, window.center_frame, window.frame_names
 
@@ -156,17 +160,25 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                                     f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "raw_text": vlm_out.raw_text, "latency_s": vlm_out.latency_s}) + "\n")
 
                             parsed = parse(vlm_out.raw_text, window_size=N)
+                            dbg_parse(parsed.parse_success, len(parsed.frames), N, parsed.parse_error)
+
                             if context.benchmark_cfg["output"].get("save_parsed_outputs"):
                                 with open(parsed_log_path, "a") as f:
-                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n")
+                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "frame_names": window.frame_names, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n")
 
                             frame_scores = score_window(parsed, window.annotations, model_name, clip.clip_id, window.frame_names, N)
                             all_scores.extend(frame_scores)
 
                             judge_cfg = context.benchmark_cfg["scorers"].get("llm_judge")
                             if judge_cfg and judge_cfg.get("enabled"):
+                                if not parsed.parse_success:
+                                    dbg_judge_skip("parse failed")
                                 js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
                                 judge_scores.append(js)
+                                if js.judge_error and js.judge_error != "parse_failed":
+                                    dbg_judge_error(js.judge_error)
+                                elif parsed.parse_success:
+                                    dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
                                 if context.benchmark_cfg["output"].get("save_parsed_outputs"):
                                     with open(judge_log_path, "a") as f:
                                         f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": js.__dict__}) + "\n")
@@ -197,27 +209,33 @@ def run_scoring(results: InferenceResults) -> list[ModelSummary]:
 
 def report_results(summaries: list[ModelSummary], context: PipelineContext) -> None:
     """Display the summary table and save consolidated scores to disk."""
-    table = Table(title="Scores Summary", box=box.HEAVY_EDGE, header_style="bold cyan")
-    table.add_column("Model", justify="left", style="magenta")
-    table.add_column("N", justify="center")
-    table.add_column("F1 Context", justify="right")
-    table.add_column("F1 Ped", justify="right")
-    table.add_column("F1 Veh", justify="right")
-    table.add_column("Judge", justify="right", style="yellow")
-    table.add_column("Latency (s)", justify="right")
+    table = Table(title="Extraction Results — Quick Summary", box=box.HEAVY_EDGE, header_style="bold cyan")
+    table.add_column("Model",        justify="left",  style="magenta")
+    table.add_column("N",            justify="center")
+    table.add_column("F1 Context",   justify="right")
+    table.add_column("F1 Ped",       justify="right")
+    table.add_column("F1 Veh",       justify="right")
+    table.add_column("Completeness", justify="right", style="yellow")
+    table.add_column("Sem. Rich.",   justify="right", style="yellow")
+    table.add_column("Spatial",      justify="right", style="yellow")
+    table.add_column("Judge Overall",justify="right", style="bold yellow")
+    table.add_column("Latency (s)",  justify="right")
 
     for s in summaries:
         table.add_row(
             s.model_name, str(s.window_size),
-            f"{s.f1_context:.3f}" if s.f1_context is not None else "-",
-            f"{s.f1_pedestrians:.3f}" if s.f1_pedestrians is not None else "-",
-            f"{s.f1_vehicles:.3f}" if s.f1_vehicles is not None else "-",
-            f"{s.avg_judge_overall:.3f}" if s.avg_judge_overall is not None else "-",
-            f"{s.avg_latency_s:.2f}"
+            f"{s.f1_context:.3f}"      if s.f1_context      is not None else "-",
+            f"{s.f1_pedestrians:.3f}"  if s.f1_pedestrians  is not None else "-",
+            f"{s.f1_vehicles:.3f}"     if s.f1_vehicles      is not None else "-",
+            f"{s.avg_judge_completeness:.3f}"      if s.avg_judge_completeness      is not None else "-",
+            f"{s.avg_judge_semantic_richness:.3f}" if s.avg_judge_semantic_richness is not None else "-",
+            f"{s.avg_judge_spatial_relations:.3f}" if s.avg_judge_spatial_relations is not None else "-",
+            f"{s.avg_judge_overall:.3f}"           if s.avg_judge_overall           is not None else "-",
+            f"{s.avg_latency_s:.2f}",
         )
     console.print(table)
 
-    with open(context.results_dir / "scores.json", "w") as f:
+    with open(context.results_dir / "raw" / "scores.json", "w") as f:
         json.dump([s.__dict__ for s in summaries], f, indent=2, default=str)
 
     console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))

@@ -1,0 +1,1 @@
+{"model": "mistral-medium", "N": 2, "clip_id": "clip_544", "center_frame": "000006.png", "judge_model": "ADADAS-gpt-5-mini", "scores": {"model_name": "mistral-medium", "clip_id": "clip_544", "center_frame": "000006.png", "window_size": 2, "completeness": 0.0, "semantic_richness": 0.0, "spatial_relations": 0.0, "overall": 0.0, "justifications": {}, "judge_error": "parse_failed"}}

@@ -5,7 +5,10 @@ from PIL import Image
 from typing import Any, cast
 from dotenv import load_dotenv
 from .base import BaseVLM, VLMOutput
-from ..core.utils import pil_to_b64
+from ..core.utils import pil_to_b64, dbg, dbg_infer, dbg_retry
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 5  # seconds between retries
 
 
 class GPT(BaseVLM):
@@ -17,7 +20,7 @@ class GPT(BaseVLM):
         except ImportError:
             raise ImportError("pip install openai")
 
-        cfg = self.config.get("openai_api", {})
+        cfg = self.config.get("openai_api") or self.config.get("mistral_api", {})
         
         # Récupération de l'API key : priorité config (si non-template) puis env
         api_key = cfg.get("api_key")
@@ -49,31 +52,56 @@ class GPT(BaseVLM):
                 },
             })
 
-        max_tokens = self.config.get("max_new_tokens", 512)
+        max_tokens  = self.config.get("max_new_tokens", 512)
+        temperature = self.config.get("temperature", 0.0)
         base_kwargs: dict[str, Any] = {
             "model": self._model_id,
             "messages": cast(Any, [{"role": "user", "content": content}]),
-            "temperature": self.config.get("temperature", 0.0),
         }
 
+        def _is_param_error(e: Exception) -> bool:
+            s = str(e)
+            return any(k in s for k in ("extra_forbidden", "unsupported_parameter", "not supported", "unsupported_value"))
+
+        def _is_transient(e: Exception) -> bool:
+            s = str(e).lower()
+            return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit"))
+
+        dbg(f"sending to {self._model_id} · {len(frames)} image(s) · max_tokens={max_tokens}")
         t0 = time.perf_counter()
-        # Try max_completion_tokens (newer models), fall back to max_tokens, then no limit
-        for extra in (
+        param_candidates = (
+            {"max_completion_tokens": max_tokens, "temperature": temperature},
+            {"max_tokens": max_tokens,            "temperature": temperature},
             {"max_completion_tokens": max_tokens},
             {"max_tokens": max_tokens},
             {},
-        ):
-            try:
-                response = self._client.chat.completions.create(**base_kwargs, **extra)
-                break
-            except Exception as e:
-                if "extra_forbidden" in str(e) or "unsupported_parameter" in str(e) or "not supported" in str(e).lower():
-                    continue
-                raise
+        )
+        response = None
+        for extra in param_candidates:
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    response = self._client.chat.completions.create(**base_kwargs, **extra)
+                    dbg(f"params OK: {list(extra.keys()) or 'none'}")
+                    break  # success
+                except Exception as e:
+                    if _is_param_error(e):
+                        dbg(f"params {list(extra.keys())} rejected → trying next combo")
+                        break  # try next param combo
+                    if _is_transient(e) and attempt < _MAX_RETRIES - 1:
+                        dbg_retry(attempt + 1, _MAX_RETRIES, _RETRY_DELAY * (attempt + 1), str(e))
+                        time.sleep(_RETRY_DELAY * (attempt + 1))
+                        continue
+                    raise
+            if response is not None:
+                break  # found working combo
+
+        if response is None:
+            raise RuntimeError("No supported parameter combination found for this model.")
         latency = time.perf_counter() - t0
 
         raw_text = response.choices[0].message.content or ""
         usage    = response.usage
+        dbg_infer(latency, usage.prompt_tokens if usage else None, usage.completion_tokens if usage else None, len(raw_text))
 
         return VLMOutput(
             model_name=self.name,

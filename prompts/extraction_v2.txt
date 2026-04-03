@@ -42,8 +42,8 @@ The JSON must follow this exact schema — one entry per frame received:
         "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
         "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
         "motion_status": "<one of: stopped, moving, parked>",
-        "trunk_open": "<one of: open, closed, unknown>",
-        "doors_open": "<one of: open, closed, unknown>",
+        "trunk_open": "<one of: open, closed>",
+        "doors_open": "<one of: open, closed>",
         "spatial_relations": ["<relation to another entity or scene element>"]
       }
     ]

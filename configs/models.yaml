@@ -4,7 +4,7 @@
       enabled: true
       backend: mistral_api
       model_id: mistral-medium-latest
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       mistral_api:
         base_url: "${MISTRAL_API_BASE}"
@@ -12,10 +12,10 @@
         timeout_s: 60
 
     mistral-large:
-      enabled: true
+      enabled: false
       backend: openai_api
       model_id: ADADAS-mistral-large-3
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       mistral_api:
         base_url: "${MISTRAL_LARGE_API_BASE}"
@@ -28,7 +28,7 @@
       backend: local_transformers
       model_id: allenai/Molmo2-4B
       dtype: bfloat16
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       device: cuda
       transformers:
@@ -39,7 +39,7 @@
       backend: local_transformers
       model_id: Qwen/Qwen2.5-VL-7B-Instruct
       dtype: bfloat16
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       device: cuda
       transformers:
@@ -50,7 +50,7 @@
       backend: local_transformers
       model_id: llava-hf/llava-v1.6-mistral-7b-hf
       dtype: float16
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       device: cuda
       transformers:
@@ -60,7 +60,7 @@
       enabled: false
       backend: openai_api
       model_id: gpt-4-vision-preview
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       openai_api:
         base_url: "${OPENAI_API_BASE}"
@@ -68,10 +68,10 @@
         timeout_s: 60
 
     gpt-4o-mini:
-      enabled: true
+      enabled: false
       backend: openai_api
       model_id: gpt-4o-mini
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       openai_api:
         base_url: "${OPENAI_API_BASE}"
@@ -79,12 +79,12 @@
         timeout_s: 60
 
     gpt-5-mini:
-      enabled: true
+      enabled: false
       backend: openai_api
       model_id: ADADAS-gpt-5-mini
-      max_new_tokens: 2500
+      max_new_tokens: 12000
       temperature: 0.0
       mistral_api:
         base_url: "${GPT_5_MINI_API_BASE}"
         api_key: "${AZURE_API_KEY}"
-        timeout_s: 60
+        timeout_s: 90
