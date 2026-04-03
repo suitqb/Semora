@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
-import statistics
 from collections import defaultdict
 from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
@@ -462,13 +460,8 @@ _FIELD_GUIDE = """\
 """
 
 
-def print_field_guide() -> None:
-    console.print(_FIELD_GUIDE, highlight=False)
-
-
 def save_field_guide(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "field_guide.txt").write_text(_FIELD_GUIDE)
     _c = Console(record=True)
-    _c.print(_FIELD_GUIDE, highlight=False)
     (output_dir / "field_guide.html").write_text(_c.export_html())

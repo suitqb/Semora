@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+.r1 {font-style: italic}
+.r2 {font-weight: bold; font-style: italic}
+.r3 {color: #008080; text-decoration-color: #008080; font-weight: bold}
+.r4 {color: #800080; text-decoration-color: #800080}
+.r5 {color: #008000; text-decoration-color: #008000}
+.r6 {color: #808000; text-decoration-color: #808000}
+.r7 {color: #808000; text-decoration-color: #808000; font-weight: bold}
+.r8 {font-weight: bold}
+.r9 {color: #7f7f7f; text-decoration-color: #7f7f7f}
+.r10 {color: #800000; text-decoration-color: #800000}
+.r11 {color: #7fbf7f; text-decoration-color: #7fbf7f}
+.r12 {color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold}
+.r13 {color: #7fbfbf; text-decoration-color: #7fbfbf; font-weight: bold}
+.r14 {color: #800080; text-decoration-color: #800080; font-weight: bold; font-style: italic}
+.r15 {color: #008000; text-decoration-color: #008000; font-weight: bold}
+body {
+    color: #000000;
+    background-color: #ffffff;
+}
+</style>
+</head>
+<body>
+    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><code style="font-family:inherit"><span class="r1">                                           </span><span class="r2">Extraction Quality Overview — 20260403_173131</span><span class="r1">                                           </span>
+┏━━━━━━━━━━━━━━━━┯━━━┯━━━━━━━━━┯━━━━━━━━━━━━┯━━━━━━━━┯━━━━━━━━┯━━━━━━━━━━━━━━┯━━━━━━━━━━━━┯━━━━━━━━━┯━━━━━━━━━━━━━━━┯━━━━━━━━━━━━━┓
+┃<span class="r3"> Model          </span>│<span class="r3"> N </span>│<span class="r3"> Parse % </span>│<span class="r3"> F1 Context </span>│<span class="r3"> F1 Ped </span>│<span class="r3"> F1 Veh </span>│<span class="r3"> Completeness </span>│<span class="r3"> Sem. Rich. </span>│<span class="r3"> Spatial </span>│<span class="r3"> Judge Overall </span>│<span class="r3"> Latency (s) </span>┃
+┠────────────────┼───┼─────────┼────────────┼────────┼────────┼──────────────┼────────────┼─────────┼───────────────┼─────────────┨
+┃<span class="r4"> mistral-medium </span>│ 2 │     <span class="r5">89%</span> │      0.167 │  0.800 │  0.472 │<span class="r6">        0.583 </span>│<span class="r6">      0.713 </span>│<span class="r6">   0.580 </span>│<span class="r7">         0.615 </span>│        4.45 ┃
+┠────────────────┼───┼─────────┼────────────┼────────┼────────┼──────────────┼────────────┼─────────┼───────────────┼─────────────┨
+┃<span class="r4"> mistral-medium </span>│ 4 │     <span class="r5">94%</span> │      0.292 │  0.825 │  0.472 │<span class="r6">        0.467 </span>│<span class="r6">      0.600 </span>│<span class="r6">   0.550 </span>│<span class="r7">         0.500 </span>│       10.04 ┃
+┗━━━━━━━━━━━━━━━━┷━━━┷━━━━━━━━━┷━━━━━━━━━━━━┷━━━━━━━━┷━━━━━━━━┷━━━━━━━━━━━━━━┷━━━━━━━━━━━━┷━━━━━━━━━┷━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━┛
+
+<span class="r1">         Per-field Scores — mistral-medium · N=2          </span>
+                                                          
+ <span class="r8"> Field          </span> <span class="r8"> Category </span> <span class="r8"> Precision </span> <span class="r8"> Recall </span> <span class="r8">    F1 </span> 
+ ──────────────────────────────────────────────────────── 
+  atomic_action   <span class="r9">   ped    </span>      1.000    0.875   <span class="r5">0.917</span>  
+  simple_context  <span class="r9">   ped    </span>      0.250    0.125   <span class="r10">0.167</span>  
+  communicative   <span class="r9">   ped    </span>      1.000    1.000   <span class="r5">1.000</span>  
+  transporting    <span class="r9">   ped    </span>      0.875    1.000   <span class="r5">0.917</span>  
+  age ⚠           <span class="r9">   ped    </span>      1.000    1.000   <span class="r5">1.000</span>  
+  motion_status   <span class="r9">   veh    </span>      0.750    0.750   <span class="r5">0.750</span>  
+  trunk_open      <span class="r9">   veh    </span>      0.500    0.250   <span class="r10">0.333</span>  
+  doors_open      <span class="r9">   veh    </span>      0.500    0.250   <span class="r10">0.333</span>  
+                                                          
+  <span class="r6">⚠  age:</span> <span class="r9">VLMs always predict </span><span class="r11">&#x27;adult&#x27;</span><span class="r9"> </span><span class="r12">(</span><span class="r13">92</span><span class="r9">% of GT</span><span class="r12">)</span><span class="r9"> — cannot distinguish age from dashcam distance</span>
+
+
+<span class="r1">         Per-field Scores — mistral-medium · N=4          </span>
+                                                          
+ <span class="r8"> Field          </span> <span class="r8"> Category </span> <span class="r8"> Precision </span> <span class="r8"> Recall </span> <span class="r8">    F1 </span> 
+ ──────────────────────────────────────────────────────── 
+  atomic_action   <span class="r9">   ped    </span>      1.000    0.875   <span class="r5">0.917</span>  
+  simple_context  <span class="r9">   ped    </span>      0.375    0.250   <span class="r10">0.292</span>  
+  communicative   <span class="r9">   ped    </span>      1.000    1.000   <span class="r5">1.000</span>  
+  transporting    <span class="r9">   ped    </span>      0.875    1.000   <span class="r5">0.917</span>  
+  age ⚠           <span class="r9">   ped    </span>      1.000    1.000   <span class="r5">1.000</span>  
+  motion_status   <span class="r9">   veh    </span>      0.750    0.750   <span class="r5">0.750</span>  
+  trunk_open      <span class="r9">   veh    </span>      0.500    0.250   <span class="r10">0.333</span>  
+  doors_open      <span class="r9">   veh    </span>      0.500    0.250   <span class="r10">0.333</span>  
+                                                          
+  <span class="r6">⚠  age:</span> <span class="r9">VLMs always predict </span><span class="r11">&#x27;adult&#x27;</span><span class="r9"> </span><span class="r12">(</span><span class="r13">92</span><span class="r9">% of GT</span><span class="r12">)</span><span class="r9"> — cannot distinguish age from dashcam distance</span>
+
+
+<span class="r8">Inter-window Temporal Consistency — 20260403_173131</span>
+<span class="r9">Compares attribute stability for the same person across independent inferences</span>
+
+  <span class="r9">→ </span><span class="r13">2</span><span class="r9"> windows skipped </span><span class="r12">(</span><span class="r9">parse failed</span><span class="r12">)</span>
+  <span class="r9">→ </span><span class="r13">8</span><span class="r9"> windows across </span><span class="r13">2</span><span class="r9"> </span><span class="r12">(</span><span class="r9">model, clip, N</span><span class="r12">)</span><span class="r9"> groups — </span><span class="r13">0</span><span class="r9">/</span><span class="r13">2</span><span class="r9"> groups have only </span><span class="r13">1</span><span class="r9"> window </span><span class="r12">(</span><span class="r9">no pair possible</span><span class="r12">)</span>
+
+<span class="r1">                 </span><span class="r14">mistral-medium</span><span class="r1"> — Temporal Re-ID &amp; Attribute Consistency                  </span>
+                                                                                          
+ <span class="r3"> N </span> <span class="r3"> Re-ID rate </span> <span class="r3"> atomic action </span> <span class="r3"> simple context </span> <span class="r3"> communicative </span> <span class="r3"> transporting </span> <span class="r3"> age ⚠ </span> 
+ ──────────────────────────────────────────────────────────────────────────────────────── 
+  2    <span class="r10">29%</span> (2/7)            <span class="r5">100%</span>               <span class="r9">0%</span>            <span class="r5">100%</span>           <span class="r5">100%</span>    <span class="r5">100%</span>  
+                                                                                          
+  4    <span class="r10">29%</span> (2/7)            <span class="r5">100%</span>              <span class="r6">50%</span>            <span class="r5">100%</span>           <span class="r5">100%</span>    <span class="r5">100%</span>  
+                                                                                          
+  <span class="r9">Re-ID rate: % of pedestrians from one window re-identified in another </span><span class="r12">(</span><span class="r9">track_hint Jaccard ≥ </span><span class="r13">45</span><span class="r9">%</span><span class="r12">)</span><span class="r9">.</span>
+  <span class="r9">* age </span><span class="r12">(</span><span class="r9">static</span><span class="r12">)</span><span class="r9">: should always agree across windows — red = model is inconsistent.</span>
+  <span class="r9">Dynamic fields: lower agreement is normal — the person may have changed action.</span>
+
+<span class="r15">CSV saved:</span> runs/20260403_173131/report/temporal_consistency_20260403_173131.csv
+</code></pre>
+</body>
+</html>

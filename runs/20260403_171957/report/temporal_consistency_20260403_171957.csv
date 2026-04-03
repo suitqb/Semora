@@ -1,0 +1,3 @@
+model_name,window_size,n_pairs,reid_rate,n_matches,n_candidates,agree_atomic_action,agree_simple_context,agree_communicative,agree_transporting,agree_age
+mistral-medium,2,6,0.5714,4,7,1.0,0.0,1.0,1.0,1.0
+mistral-medium,4,6,0.2857,2,7,1.0,0.5,1.0,1.0,1.0
