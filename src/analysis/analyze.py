@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -463,5 +464,6 @@ _FIELD_GUIDE = """\
 def save_field_guide(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "field_guide.txt").write_text(_FIELD_GUIDE)
-    _c = Console(record=True)
+    _c = Console(record=True, file=io.StringIO())
+    _c.print(_FIELD_GUIDE)
     (output_dir / "field_guide.html").write_text(_c.export_html())

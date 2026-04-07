@@ -9,3 +9,5 @@ __pycache__/
 .ipynb_checkpoints/
 results/
 runs/
+CLAUDE.md
+plan_test.md

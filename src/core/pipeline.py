@@ -59,6 +59,7 @@ def load_pipeline(
     clips_cfg_path: Path,
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
+    mode: str = "extraction",
 ) -> PipelineContext:
     """Load configurations, clips, and models required for the pipeline."""
     models_cfg    = _load_yaml(models_cfg_path)["models"]
@@ -90,7 +91,7 @@ def load_pipeline(
                 )
 
     run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / run_id
+    results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / mode / run_id
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "raw").mkdir(exist_ok=True)
     (results_dir / "report").mkdir(exist_ok=True)
@@ -247,9 +248,8 @@ def run(
     selected_models: list[str] | None = None,
 ) -> Path:
     """Main pipeline entry point. Orchestrates loading, inference, scoring, and reporting."""
-    # Preserve existing Exception catch (may mask config errors if they occur here)
     try:
-        context   = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models)
+        context   = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="extraction")
         results   = run_inference(context)
         summaries = run_scoring(results)
         report_results(summaries, context)
