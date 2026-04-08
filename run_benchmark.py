@@ -10,7 +10,7 @@ from rich.table import Table
 
 load_dotenv()
 
-from src.core.console import console, save_report as save_pipeline_report  # noqa: E402
+from src.core.console import console  # noqa: E402
 from src.core.pipeline import run  # noqa: E402
 
 def get_available_models(models_cfg_path: Path) -> list[str]:
@@ -136,8 +136,6 @@ def main() -> None:
                         help="Use only 'enabled: true' models from models.yaml")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging (per-frame inference details)")
-    parser.add_argument("--full", "-f", action="store_true", default=None,
-                        help="Run full post-benchmark analysis, plots, and HTML reports")
 
     args = parser.parse_args()
 
@@ -157,12 +155,12 @@ def main() -> None:
     if mode is None:
         mode = "extraction" if args.non_interactive else interactive_mode_selection()
 
-    # ── Resolve clips config based on mode ───────────────────────────────────
+    # ── Resolve clips config based on mode (--clips-cfg always wins) ────────
     if args.clips_cfg is None:
-        args.clips_cfg = (
-            Path("configs/clips_complexity.yaml") if mode == "complexity"
-            else Path("configs/clips.yaml")
-        )
+        if mode == "complexity":
+            args.clips_cfg = Path("configs/clips_complexity.yaml")
+        else:
+            args.clips_cfg = Path("configs/clips.yaml")
 
     # ── Mode: extraction (Plans 1 & 2) ────────────────────────────────────────
     available_models = get_available_models(args.models_cfg)
@@ -181,15 +179,6 @@ def main() -> None:
     if not selected_models and not args.use_config:
         selected_models = available_models
 
-    # ── Resolve post_run settings ─────────────────────────────────────────────
-    post_run_cfg: dict = {}
-    if args.use_config:
-        import yaml
-        with open(args.benchmark_cfg) as f:
-            post_run_cfg = yaml.safe_load(f).get("benchmark", {}).get("post_run", {})
-
-    do_full = args.full if args.full is not None else post_run_cfg.get("full", False)
-
     # ── Run benchmark ─────────────────────────────────────────────────────────
     if mode == "complexity":
         from src.core.pipeline_complexity import run_complexity
@@ -207,46 +196,37 @@ def main() -> None:
             selected_models=selected_models,
         )
 
-    # ── Post-run: full mode ───────────────────────────────────────────────────
-    if do_full:
-        report_dir = results_dir / "report"
+    # ── Post-run: always generate full report ─────────────────────────────────
+    report_dir = results_dir / "report"
 
-        if mode == "complexity":
-            import yaml
-            from src.analysis import analyze_complexity as _ac
-            from src.analysis import plot_complexity as _pc
+    if mode == "complexity":
+        from src.analysis import analyze_complexity as _ac
+        from src.analysis import plot_complexity as _pc
 
-            # Read bucket config from clips_complexity.yaml for labels
-            with open(args.clips_cfg) as f:
-                _clips_cfg = yaml.safe_load(f)
-            buckets_cfg = _clips_cfg.get("sampling", {}).get("complexity_buckets")
+        console.print("\n[bold cyan]── Complexity Analysis ───────────────────────[/bold cyan]")
+        _ac.run_complexity_analysis(results_dir, report_dir)
 
-            console.print("\n[bold cyan]── Complexity Analysis ───────────────────────[/bold cyan]")
-            _ac.run_complexity_analysis(results_dir, report_dir, buckets_cfg)
+        console.print("\n[bold cyan]── Complexity Plots ──────────────────────────[/bold cyan]")
+        _pc.run_complexity_plots(results_dir, report_dir / "plots")
 
-            console.print("\n[bold cyan]── Complexity Plots ──────────────────────────[/bold cyan]")
-            _pc.run_complexity_plots(results_dir, report_dir / "plots")
+        _ac.save_report(report_dir)
+        console.print(f"[dim]reports saved → {report_dir}/[/dim]")
 
-            _ac.save_report(report_dir)
-            save_pipeline_report(report_dir, stem="pipeline_report")
-            console.print(f"[dim]reports saved → {report_dir}/[/dim]")
+    else:
+        from src.analysis import analyze as _analyze
+        from src.analysis import plot as _plot
 
-        else:
-            from src.analysis import analyze as _analyze
-            from src.analysis import plot as _plot
+        console.print("\n[bold cyan]── Analysis ──────────────────────────────────[/bold cyan]")
+        _analyze.print_scores_table(results_dir)
+        _analyze.run_temporal_analysis(results_dir, report_dir)
+        _analyze.save_field_guide(report_dir)
+        console.print(f"[dim]Field guide → {report_dir}/field_guide.html[/dim]")
 
-            console.print("\n[bold cyan]── Analysis ──────────────────────────────────[/bold cyan]")
-            _analyze.print_scores_table(results_dir)
-            _analyze.run_temporal_analysis(results_dir, report_dir)
-            _analyze.save_field_guide(report_dir)
-            console.print(f"[dim]Field guide → {report_dir}/field_guide.html[/dim]")
+        console.print("\n[bold cyan]── Plots ─────────────────────────────────────[/bold cyan]")
+        _plot.run_all_plots(results_dir, report_dir / "plots")
 
-            console.print("\n[bold cyan]── Plots ─────────────────────────────────────[/bold cyan]")
-            _plot.run_all_plots(results_dir, report_dir / "plots")
-
-            _analyze.save_report(report_dir)
-            save_pipeline_report(report_dir, stem="pipeline_report")
-            console.print(f"[dim]reports saved → {report_dir}/[/dim]")
+        _analyze.save_report(report_dir)
+        console.print(f"[dim]reports saved → {report_dir}/[/dim]")
 
 if __name__ == "__main__":
     main()

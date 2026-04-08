@@ -3,28 +3,7 @@ from dataclasses import dataclass
 
 from ..parsing.output_parser import ParsedOutput
 from ..sampling.clip_loader import FrameAnnotation
-
-
-# Fields scored for pedestrians - aligned with TITAN GT columns
-_PERSON_FIELDS = [
-    "atomic_action",
-    "simple_context",
-    "communicative",
-    "transporting",
-    "age",
-]
-
-# Mapping of ParsedOutput field names to TITAN GT column names
-_GT_FIELD_MAP = {
-    "atomic_action":  "Atomic Actions",
-    "simple_context": "Simple Context",
-    "communicative":  "Communicative",
-    "transporting":   "Transporting",
-    "age":            "Age",
-    "motion_status":  "Motion Status",
-    "trunk_open":     "Trunk Open",
-    "doors_open":     "Doors Open",
-}
+from .fields import PERSON_FIELDS as _PERSON_FIELDS, GT_FIELD_MAP as _GT_FIELD_MAP
 
 
 @dataclass

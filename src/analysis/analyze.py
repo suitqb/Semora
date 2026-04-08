@@ -12,13 +12,14 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+# Local console with record=True: captures only analysis output for the HTML report.
+# Intentionally separate from src.core.console (which captures the full pipeline run).
 console = Console(record=True)
 
 
 def save_report(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "analyze_report.html").write_text(console.export_html())
-    (output_dir / "analyze_report.txt").write_text(console.export_text())
 
 # Fields flagged as unreliable — shown with a warning in field detail
 _UNRELIABLE_FIELDS = {
@@ -463,7 +464,6 @@ _FIELD_GUIDE = """\
 
 def save_field_guide(output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "field_guide.txt").write_text(_FIELD_GUIDE)
     _c = Console(record=True, file=io.StringIO())
     _c.print(_FIELD_GUIDE)
     (output_dir / "field_guide.html").write_text(_c.export_html())

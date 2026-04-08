@@ -158,8 +158,8 @@ def judge(
         elif backend == "mistral_api":
             from mistralai.client import Mistral
             client = Mistral(
-                api_key=os.environ.get("MISTRAL_API_KEY"),
-                server_url=os.environ.get("MISTRAL_API_BASE"),
+                api_key=judge_cfg.get("api_key") or os.environ.get("MISTRAL_API_KEY"),
+                server_url=judge_cfg.get("base_url") or os.environ.get("MISTRAL_API_BASE"),
             )
             response = client.chat.complete(
                 model=model_id,
@@ -184,6 +184,12 @@ def judge(
                 console.print(f"[bold red]⚠ Judge JSON Error ({model_id}):[/bold red]\n{raw_text}")
                 raise je
 
+        if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
+            console.print(f"[bold red]⚠ Judge response has unexpected structure ({model_id}): {data}[/bold red]")
+            justifications = {}
+        else:
+            justifications = {k: v.get("justification", "") for k, v in data.items()}
+
         return JudgeScore(
             model_name=model_name, clip_id=clip_id,
             center_frame=center_frame, window_size=window_size,
@@ -191,7 +197,7 @@ def judge(
             semantic_richness=data["semantic_richness"]["score"],
             spatial_relations=data["spatial_relations"]["score"],
             overall=data["overall"]["score"],
-            justifications={k: v["justification"] for k, v in data.items()},
+            justifications=justifications,
             judge_error=None,
         )
 

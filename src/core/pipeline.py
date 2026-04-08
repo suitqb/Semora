@@ -41,6 +41,7 @@ class PipelineContext:
     results_dir: Path
     run_id: str
     prompt: str
+    mode: str = "extraction"
 
 @dataclass
 class InferenceResults:
@@ -100,12 +101,17 @@ def load_pipeline(
     models = build_models(models_cfg)
     model_names = ", ".join(models.keys())
 
+    mode_label = {
+        "extraction": "Extraction  — Plans 1 & 2",
+        "complexity": "Complexity  — Plan 3",
+    }.get(mode, mode)
+
     header = Panel(
         f"[bold blue]Run ID:[/bold blue] {run_id}\n"
         f"[bold blue]Clips:[/bold blue] {len(clips)} | "
         f"[bold blue]Models ({len(models)}):[/bold blue] {model_names}\n"
         f"[bold blue]Windows:[/bold blue] {sampling_cfg['window_sizes']}",
-        title="[bold white]Semora Benchmark[/bold white]",
+        title=f"[bold white]Semora Benchmark[/bold white]  [dim]·  {mode_label}[/dim]",
         border_style="bright_magenta",
         box=box.ROUNDED
     )
@@ -113,7 +119,8 @@ def load_pipeline(
 
     return PipelineContext(
         models=models, clips=clips, benchmark_cfg=benchmark_cfg,
-        sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt
+        sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt,
+        mode=mode,
     )
 
 def run_inference(context: PipelineContext) -> InferenceResults:
@@ -174,6 +181,7 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                             if judge_cfg and judge_cfg.get("enabled"):
                                 if not parsed.parse_success:
                                     dbg_judge_skip("parse failed")
+                                    continue
                                 js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
                                 judge_scores.append(js)
                                 if js.judge_error and js.judge_error != "parse_failed":
@@ -208,6 +216,13 @@ def run_scoring(results: InferenceResults) -> list[ModelSummary]:
     console.print("\n[bold green]✓ Benchmark finished. Aggregating scores...[/bold green]")
     return aggregate(results.all_scores, results.latencies, results.token_counts, judge_scores=results.judge_scores)
 
+def save_scores(summaries: list[ModelSummary], context: PipelineContext) -> None:
+    """Save consolidated scores to disk."""
+    with open(context.results_dir / "raw" / "scores.json", "w") as f:
+        json.dump([s.__dict__ for s in summaries], f, indent=2, default=str)
+    console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))
+
+
 def report_results(summaries: list[ModelSummary], context: PipelineContext) -> None:
     """Display the summary table and save consolidated scores to disk."""
     table = Table(title="Extraction Results — Quick Summary", box=box.HEAVY_EDGE, header_style="bold cyan")
@@ -235,11 +250,7 @@ def report_results(summaries: list[ModelSummary], context: PipelineContext) -> N
             f"{s.avg_latency_s:.2f}",
         )
     console.print(table)
-
-    with open(context.results_dir / "raw" / "scores.json", "w") as f:
-        json.dump([s.__dict__ for s in summaries], f, indent=2, default=str)
-
-    console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))
+    save_scores(summaries, context)
 
 def run(
     models_cfg_path: Path,

@@ -1,16 +1,14 @@
 benchmark:
-  run_id: null          # null = automatically generated (timestamp)
-  seed: 42
+  run_id: null    # null = timestamp auto-generated (YYYYMMDD_HHMMSS)
 
   prompt:
-    version: v2           # selects prompts/extraction_v2.txt (multi-frame)
-    # version: v1         # legacy single-frame prompt
+    version: v2   # prompts/extraction_v2.txt
 
   scorers:
-    titan_gt: true      # precision / recall / F1 vs TITAN CSV annotations
+    titan_gt: true
     llm_judge:
       enabled: true
-      backend: "openai_api"          # "openai_api" or "mistral_api"
+      backend: openai_api
       model_id: "ADADAS-gpt-5-mini"
       base_url: "${OPENAI_API_BASE}"
       api_key: "${OPENAI_API_KEY}"
@@ -19,8 +17,8 @@ benchmark:
 
   output:
     runs_dir: runs
-    save_raw_outputs: true    # log raw text before parsing
-    save_parsed_outputs: true # log parsed dictionary
+    save_raw_outputs: false   # raw VLM text — large, skip unless debugging
+    save_parsed_outputs: true # parsed JSON + judge outputs (required for analysis)
 
   post_run:
-    full: true                # run full post-benchmark pipeline: analysis, temporal consistency, plots, and HTML reports
+    full: true    # auto-run analysis + plots after benchmark

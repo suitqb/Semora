@@ -1,90 +1,82 @@
-  models:
+models:
 
-    mistral-medium:
-      enabled: true
-      backend: mistral_api
-      model_id: mistral-medium-latest
-      max_new_tokens: 12000
-      temperature: 0.0
-      mistral_api:
-        base_url: "${MISTRAL_API_BASE}"
-        api_key: "${MISTRAL_API_KEY}"
-        timeout_s: 60
+  # ── API models ───────────────────────────────────────────────────────────────
 
-    mistral-large:
-      enabled: false
-      backend: openai_api
-      model_id: ADADAS-mistral-large-3
-      max_new_tokens: 12000
-      temperature: 0.0
-      mistral_api:
-        base_url: "${MISTRAL_LARGE_API_BASE}"
-        api_key: "${AZURE_API_KEY}"
-        timeout_s: 60
+  mistral-medium:
+    enabled: true
+    backend: mistral_api
+    model_id: mistral-medium-latest
+    max_new_tokens: 12000
+    temperature: 0.0
+    mistral_api:
+      base_url: "${MISTRAL_API_BASE}"
+      api_key: "${MISTRAL_API_KEY}"
+      timeout_s: 60
 
+  mistral-large:
+    enabled: false
+    backend: openai_api
+    model_id: ADADAS-mistral-large-3
+    max_new_tokens: 12000
+    temperature: 0.0
+    mistral_api:
+      base_url: "${MISTRAL_LARGE_API_BASE}"
+      api_key: "${AZURE_API_KEY}"
+      timeout_s: 60
 
-    molmo2-4b:
-      enabled: false
-      backend: local_transformers
-      model_id: allenai/Molmo2-4B
-      dtype: bfloat16
-      max_new_tokens: 12000
-      temperature: 0.0
-      device: cuda
-      transformers:
-        trust_remote_code: true
+  gpt-4o-mini:
+    enabled: false
+    backend: openai_api
+    model_id: gpt-4o-mini
+    max_new_tokens: 12000
+    temperature: 0.0
+    openai_api:
+      base_url: "${OPENAI_API_BASE}"
+      api_key: "${OPENAI_API_KEY}"
+      timeout_s: 60
 
-    qwen2-5-vl-7b:
-      enabled: false
-      backend: local_transformers
-      model_id: Qwen/Qwen2.5-VL-7B-Instruct
-      dtype: bfloat16
-      max_new_tokens: 12000
-      temperature: 0.0
-      device: cuda
-      transformers:
-        attn_implementation: sdpa
+  gpt-5-mini:
+    enabled: false
+    backend: openai_api
+    model_id: ADADAS-gpt-5-mini
+    max_new_tokens: 12000
+    temperature: 0.0
+    openai_api:
+      base_url: "${GPT_5_MINI_API_BASE}"
+      api_key: "${AZURE_API_KEY}"
+      timeout_s: 90
 
-    llava-1-6:
-      enabled: false
-      backend: local_transformers
-      model_id: llava-hf/llava-v1.6-mistral-7b-hf
-      dtype: float16
-      max_new_tokens: 12000
-      temperature: 0.0
-      device: cuda
-      transformers:
-        attn_implementation: eager
+  # ── Local models (Transformers) ───────────────────────────────────────────────
 
-    gpt-4-vision:
-      enabled: false
-      backend: openai_api
-      model_id: gpt-4-vision-preview
-      max_new_tokens: 12000
-      temperature: 0.0
-      openai_api:
-        base_url: "${OPENAI_API_BASE}"
-        api_key: "${OPENAI_API_KEY}"
-        timeout_s: 60
+  molmo2-4b:
+    enabled: false
+    backend: local_transformers
+    model_id: allenai/Molmo2-4B
+    dtype: bfloat16
+    max_new_tokens: 12000
+    temperature: 0.0
+    device: cuda
+    transformers:
+      trust_remote_code: true
 
-    gpt-4o-mini:
-      enabled: false
-      backend: openai_api
-      model_id: gpt-4o-mini
-      max_new_tokens: 12000
-      temperature: 0.0
-      openai_api:
-        base_url: "${OPENAI_API_BASE}"
-        api_key: "${OPENAI_API_KEY}"
-        timeout_s: 60
+  qwen2-5-vl-7b:
+    enabled: false
+    backend: local_transformers
+    model_id: Qwen/Qwen2.5-VL-7B-Instruct
+    dtype: bfloat16
+    max_new_tokens: 12000
+    temperature: 0.0
+    device: cuda
+    transformers:
+      attn_implementation: sdpa
 
-    gpt-5-mini:
-      enabled: false
-      backend: openai_api
-      model_id: ADADAS-gpt-5-mini
-      max_new_tokens: 12000
-      temperature: 0.0
-      mistral_api:
-        base_url: "${GPT_5_MINI_API_BASE}"
-        api_key: "${AZURE_API_KEY}"
-        timeout_s: 90
+  llava-1-6:
+    enabled: false
+    backend: local_transformers
+    model_id: llava-hf/llava-v1.6-mistral-7b-hf
+    dtype: float16
+    max_new_tokens: 12000
+    temperature: 0.0
+    device: cuda
+    transformers:
+      attn_implementation: eager
