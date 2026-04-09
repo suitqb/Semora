@@ -177,24 +177,24 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                             frame_scores = score_window(parsed, window.annotations, model_name, clip.clip_id, window.frame_names, N)
                             all_scores.extend(frame_scores)
 
+                            latencies[key].append(vlm_out.latency_s)
+                            token_counts[key]["prompt"] += vlm_out.prompt_tokens or 0
+                            token_counts[key]["completion"] += vlm_out.completion_tokens or 0
+
                             judge_cfg = context.benchmark_cfg["scorers"].get("llm_judge")
                             if judge_cfg and judge_cfg.get("enabled"):
                                 if not parsed.parse_success:
                                     dbg_judge_skip("parse failed")
-                                    continue
-                                js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
-                                judge_scores.append(js)
-                                if js.judge_error and js.judge_error != "parse_failed":
-                                    dbg_judge_error(js.judge_error)
-                                elif parsed.parse_success:
-                                    dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
-                                if context.benchmark_cfg["output"].get("save_parsed_outputs"):
-                                    with open(judge_log_path, "a") as f:
-                                        f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": js.__dict__}) + "\n")
-
-                            latencies[key].append(vlm_out.latency_s)
-                            token_counts[key]["prompt"] += vlm_out.prompt_tokens or 0
-                            token_counts[key]["completion"] += vlm_out.completion_tokens or 0
+                                else:
+                                    js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
+                                    judge_scores.append(js)
+                                    if js.judge_error and js.judge_error != "parse_failed":
+                                        dbg_judge_error(js.judge_error)
+                                    else:
+                                        dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
+                                    if context.benchmark_cfg["output"].get("save_parsed_outputs"):
+                                        with open(judge_log_path, "a") as f:
+                                            f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": js.__dict__}) + "\n")
                             
                         except (KeyError, AttributeError, ImportError):
                             # Re-raise critical configuration or code errors

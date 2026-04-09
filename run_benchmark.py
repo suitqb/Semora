@@ -207,7 +207,7 @@ def main() -> None:
         _ac.run_complexity_analysis(results_dir, report_dir)
 
         console.print("\n[bold cyan]── Complexity Plots ──────────────────────────[/bold cyan]")
-        _pc.run_complexity_plots(results_dir, report_dir / "plots")
+        _pc.run_complexity_plots(results_dir, report_dir)
 
         _ac.save_report(report_dir)
         console.print(f"[dim]reports saved → {report_dir}/[/dim]")
@@ -223,7 +223,7 @@ def main() -> None:
         console.print(f"[dim]Field guide → {report_dir}/field_guide.html[/dim]")
 
         console.print("\n[bold cyan]── Plots ─────────────────────────────────────[/bold cyan]")
-        _plot.run_all_plots(results_dir, report_dir / "plots")
+        _plot.run_all_plots(results_dir, report_dir)
 
         _analyze.save_report(report_dir)
         console.print(f"[dim]reports saved → {report_dir}/[/dim]")

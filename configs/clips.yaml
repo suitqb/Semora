@@ -1,9 +1,20 @@
 dataset: TITAN
 data_root: data/titan
 
-# Plans 1 & 2 — Extraction quality & temporal tracking
-# Activate clips by uncommenting. All 9 are valid benchmark clips.
-# step: frames sampled every N annotated frames (step=20 ≈ 1 frame every 2s at 10fps)
+# Plans 1 & 2 — Extraction quality & temporal consistency
+#
+# window_sizes: [1, 4]
+#   N=1 → Plan 1 : extraction pure frame par frame (pas de contexte temporel)
+#   N=4 → Plan 2 : cohérence temporelle, testabilité de la traçabilité
+#
+# step: 15
+#   1 frame toutes les 1.5s à 10fps TITAN (~20-40 windows/clip selon la longueur)
+#   Assure l'indépendance entre fenêtres consécutives pour le Plan 2
+#   Donne assez de samples par clip pour le Plan 1
+#
+# frame_selection: last
+#   Les N frames les plus récentes jusqu'à la frame cible
+#   Plus cohérent temporellement que "uniform" pour le Plan 2
 
 clips:
 
@@ -44,7 +55,7 @@ clips:
     annotation_path: annotations/clip_785.csv
 
 sampling:
-  window_sizes: [4]
-  frame_selection: uniform  # uniform | last | center
+  window_sizes: [1, 4]
+  frame_selection: last
   max_resolution: [1280, 720]
-  step: 20
+  step: 15

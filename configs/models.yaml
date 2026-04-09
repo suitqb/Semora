@@ -44,7 +44,7 @@ models:
     openai_api:
       base_url: "${GPT_5_MINI_API_BASE}"
       api_key: "${AZURE_API_KEY}"
-      timeout_s: 90
+      timeout_s: 180
 
   # ── Local models (Transformers) ───────────────────────────────────────────────
 

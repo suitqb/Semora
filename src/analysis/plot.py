@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Optional
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -64,8 +65,70 @@ def _darken(hex_color: str, factor: float = 0.6) -> str:
     return f"#{int(r*factor):02x}{int(g*factor):02x}{int(b*factor):02x}"
 
 
+# ── Table — Scores summary ────────────────────────────────────────────────────
+def plot_scores_table(summaries: list[dict], output: Path) -> Path:
+    """Render the scores summary table as a PNG."""
+    cols = [
+        "Model", "N", "Parse %", "F1 Ctx", "F1 Ped", "F1 Veh",
+        "Complete", "Sem. Rich", "Spatial", "Judge", "Latency (s)",
+    ]
+
+    def _fmt(v: object, digits: int = 3) -> str:
+        return f"{v:.{digits}f}" if v is not None else "—"
+
+    cell_data = []
+    for s in summaries:
+        parse = s.get("parse_success_rate")
+        cell_data.append([
+            s["model_name"],
+            str(s["window_size"]),
+            f"{parse:.0%}" if parse is not None else "—",
+            _fmt(s.get("f1_context")),
+            _fmt(s.get("f1_pedestrians")),
+            _fmt(s.get("f1_vehicles")),
+            _fmt(s.get("avg_judge_completeness")),
+            _fmt(s.get("avg_judge_semantic_richness")),
+            _fmt(s.get("avg_judge_spatial_relations")),
+            _fmt(s.get("avg_judge_overall")),
+            f"{s['avg_latency_s']:.2f}",
+        ])
+
+    n_rows = len(cell_data)
+    fig_h = max(3.0, n_rows * 0.9 + 2.0)
+    fig, ax = plt.subplots(figsize=(24, fig_h))
+    fig.patch.set_facecolor("#0f1117")
+    ax.set_facecolor("#0f1117")
+    ax.axis("off")
+    ax.set_title("Extraction Quality Overview", fontsize=15, fontweight="bold",
+                 color="#e0e3f0", pad=16)
+
+    tbl = ax.table(cellText=cell_data, colLabels=cols, loc="center", cellLoc="center")
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(13)
+    tbl.scale(1, 2.8)
+
+    for j in range(len(cols)):
+        tbl[0, j].set_facecolor("#2a2d4d")
+        tbl[0, j].set_text_props(color="#6c8ef5", fontweight="bold")
+        tbl[0, j].set_edgecolor("#3a3d5d")
+
+    for i in range(1, n_rows + 1):
+        for j in range(len(cols)):
+            bg = "#1a1d27" if i % 2 == 0 else "#131620"
+            tbl[i, j].set_facecolor(bg)
+            tbl[i, j].set_text_props(color="#c8ccd8")
+            tbl[i, j].set_edgecolor("#2a2d3d")
+
+    plt.tight_layout()
+    path = output / "scores_table.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  saved → {path}")
+    return path
+
+
 # ── Plot 1 — F1 overview bar chart ───────────────────────────────────────────
-def plot_f1_overview(summaries: list[dict], output: Path) -> None:
+def plot_f1_overview(summaries: list[dict], output: Path) -> Path:
     labels  = [_label(s) for s in summaries]
     f1_ctx  = [s["f1_context"]      for s in summaries]
     f1_ped  = [s["f1_pedestrians"]  for s in summaries]
@@ -119,10 +182,11 @@ def plot_f1_overview(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Plot 2 — Pedestrian field detail ─────────────────────────────────────────
-def plot_person_fields(summaries: list[dict], output: Path) -> None:
+def plot_person_fields(summaries: list[dict], output: Path) -> Path:
     fields = ["atomic_action", "simple_context", "communicative", "transporting", "age"]
     labels = [_label(s) for s in summaries]
     mc = _model_colors(summaries)
@@ -164,10 +228,11 @@ def plot_person_fields(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Plot 3 — Vehicle field detail ────────────────────────────────────────────
-def plot_vehicle_fields(summaries: list[dict], output: Path) -> None:
+def plot_vehicle_fields(summaries: list[dict], output: Path) -> Path:
     fields = ["motion_status", "trunk_open", "doors_open"]
     labels = [_label(s) for s in summaries]
     mc = _model_colors(summaries)
@@ -207,10 +272,11 @@ def plot_vehicle_fields(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Plot 4 — Radar chart per model ───────────────────────────────────────────
-def plot_radar(summaries: list[dict], output: Path) -> None:
+def plot_radar(summaries: list[dict], output: Path) -> Path:
     """One radar per (model, N). All fields on the same chart."""
     all_fields = [
         "atomic_action", "simple_context", "communicative", "transporting", "age",
@@ -264,14 +330,15 @@ def plot_radar(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Plot 5 — LLM Judge scores ─────────────────────────────────────────────────
-def plot_judge(summaries: list[dict], output: Path) -> None:
+def plot_judge(summaries: list[dict], output: Path) -> Optional[Path]:
     judge_summaries = [s for s in summaries if s.get("avg_judge_overall") is not None]
     if not judge_summaries:
         print("  no judge scores found — skipping judge plot")
-        return
+        return None
 
     labels     = [_label(s) for s in judge_summaries]
     comp       = [s["avg_judge_completeness"]      for s in judge_summaries]
@@ -310,10 +377,11 @@ def plot_judge(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Plot 6 — Latency comparison ───────────────────────────────────────────────
-def plot_latency(summaries: list[dict], output: Path) -> None:
+def plot_latency(summaries: list[dict], output: Path) -> Path:
     labels  = [_label(s) for s in summaries]
     latency = [s["avg_latency_s"] for s in summaries]
     mc = _model_colors(summaries)
@@ -339,24 +407,32 @@ def plot_latency(summaries: list[dict], output: Path) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved → {path}")
+    return path
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def run_all_plots(run_dir: Path, output_dir: Path | None = None) -> Path:
     """Generate all plots for a run. Returns the output directory."""
+    from . import assemble_report
+
     run_dir = run_dir.resolve()
-    output  = (output_dir or run_dir / "report" / "plots").resolve()
+    output  = (output_dir or run_dir / "report").resolve()
     output.mkdir(parents=True, exist_ok=True)
 
     summaries = _load(run_dir)
     print(f"  [{run_dir.name}] loaded {len(summaries)} configs → {output}/")
 
-    plot_f1_overview(summaries, output)
-    plot_person_fields(summaries, output)
-    plot_vehicle_fields(summaries, output)
-    plot_radar(summaries, output)
-    plot_judge(summaries, output)
-    plot_latency(summaries, output)
+    # Logical order for report.png: table first, then charts
+    ordered: list[Path | None] = [
+        plot_scores_table(summaries, output),
+        plot_f1_overview(summaries, output),
+        plot_person_fields(summaries, output),
+        plot_vehicle_fields(summaries, output),
+        plot_radar(summaries, output),
+        plot_judge(summaries, output),
+        plot_latency(summaries, output),
+    ]
 
-    print(f"  Done — {len(list(output.glob('*.png')))} plots saved")
+    assemble_report(ordered, output, title="Semora — Extraction Benchmark Report")
+    print(f"  Done — {len(list(output.glob('*.png')))} PNGs saved")
     return output
