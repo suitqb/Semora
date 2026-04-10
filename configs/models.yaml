@@ -8,6 +8,7 @@ models:
     model_id: mistral-medium-latest
     max_new_tokens: 12000
     temperature: 0.0
+    parallel_workers: 4
     mistral_api:
       base_url: "${MISTRAL_API_BASE}"
       api_key: "${MISTRAL_API_KEY}"
@@ -19,6 +20,7 @@ models:
     model_id: ADADAS-mistral-large-3
     max_new_tokens: 12000
     temperature: 0.0
+    parallel_workers: 4
     mistral_api:
       base_url: "${MISTRAL_LARGE_API_BASE}"
       api_key: "${AZURE_API_KEY}"
@@ -30,6 +32,7 @@ models:
     model_id: gpt-4o-mini
     max_new_tokens: 12000
     temperature: 0.0
+    parallel_workers: 4
     openai_api:
       base_url: "${OPENAI_API_BASE}"
       api_key: "${OPENAI_API_KEY}"
@@ -41,6 +44,7 @@ models:
     model_id: ADADAS-gpt-5-mini
     max_new_tokens: 12000
     temperature: 0.0
+    parallel_workers: 4
     openai_api:
       base_url: "${GPT_5_MINI_API_BASE}"
       api_key: "${AZURE_API_KEY}"

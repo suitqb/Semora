@@ -2,6 +2,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import traceback
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
@@ -73,11 +75,8 @@ def load_pipeline(
             models_cfg[m_key]["enabled"] = m_key in selected_models
 
     sampling_cfg = clips_cfg["sampling"]
-    prompt_cfg = benchmark_cfg["prompt"]
-    if "version" in prompt_cfg:
-        prompt_file = Path(f"prompts/extraction_{prompt_cfg['version']}.txt")
-    else:
-        prompt_file = Path(prompt_cfg["file"])
+    prompt_cfg = clips_cfg.get("prompt") or benchmark_cfg["prompt"]
+    prompt_file = Path(prompt_cfg["file"])
     prompt = prompt_file.read_text().strip()
 
     # Warn if max_new_tokens is too low for multi-frame output
@@ -95,7 +94,6 @@ def load_pipeline(
     results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / mode / run_id
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "raw").mkdir(exist_ok=True)
-    (results_dir / "report").mkdir(exist_ok=True)
 
     clips = load_all_clips(clips_cfg)
     models = build_models(models_cfg)
@@ -123,92 +121,221 @@ def load_pipeline(
         mode=mode,
     )
 
+def _infer_window(
+    model, model_name: str, clip, window, N: int,
+    prompt: str, benchmark_cfg: dict,
+    raw_log_path: Path, parsed_log_path: Path, judge_log_path: Path,
+    raw_lock: threading.Lock, parsed_lock: threading.Lock, judge_lock: threading.Lock,
+):
+    """Process a single window: infer → parse → score → judge. Thread-safe."""
+    vlm_out = model.infer(window.frames, prompt)
+    vlm_out.clip_id, vlm_out.center_frame, vlm_out.frame_names = clip.clip_id, window.center_frame, window.frame_names
+
+    if benchmark_cfg["output"].get("save_raw_outputs"):
+        record = json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "raw_text": vlm_out.raw_text, "latency_s": vlm_out.latency_s}) + "\n"
+        with raw_lock:
+            with open(raw_log_path, "a") as f:
+                f.write(record)
+
+    parsed = parse(vlm_out.raw_text, window_size=N)
+
+    if benchmark_cfg["output"].get("save_parsed_outputs"):
+        record = json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "frame_names": window.frame_names, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n"
+        with parsed_lock:
+            with open(parsed_log_path, "a") as f:
+                f.write(record)
+
+    frame_scores = score_window(parsed, window.annotations, model_name, clip.clip_id, window.frame_names, N)
+
+    judge_score = None
+    judge_cfg = benchmark_cfg["scorers"].get("llm_judge")
+    if judge_cfg and judge_cfg.get("enabled"):
+        if parsed.parse_success:
+            judge_score = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
+            if benchmark_cfg["output"].get("save_parsed_outputs"):
+                record = json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": judge_score.__dict__}) + "\n"
+                with judge_lock:
+                    with open(judge_log_path, "a") as f:
+                        f.write(record)
+
+    return frame_scores, judge_score, vlm_out.latency_s, vlm_out.prompt_tokens or 0, vlm_out.completion_tokens or 0
+
+
+def _run_single_model(
+    model_name: str, model, context: PipelineContext,
+    window_sizes: list[int], strategy: str, max_res, step: int,
+    progress: Progress,
+) -> tuple[list, list, dict, dict]:
+    """Run all (N, clip, window) iterations for one model against a shared progress bar."""
+    model_scores: list = []
+    model_judge: list  = []
+    model_lat:   dict  = {}
+    model_tok:   dict  = {}
+
+    for N in window_sizes:
+        key = (model_name, N)
+        model_lat[key] = []
+        model_tok[key] = {"prompt": 0, "completion": 0}
+
+        _raw_dir        = context.results_dir / "raw"
+        _prefix         = f"{model_name}_N{N}_"
+        raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
+        parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
+        judge_log_path  = _raw_dir / f"{_prefix}judge_outputs.jsonl"
+        total_windows   = sum(len(sample_windows(c, N, strategy, max_res, step)) for c in context.clips)
+
+        workers = model.parallel_workers
+        raw_lock, parsed_lock, judge_lock = threading.Lock(), threading.Lock(), threading.Lock()
+        _win_args = dict(
+            model=model, model_name=model_name, N=N,
+            prompt=context.prompt, benchmark_cfg=context.benchmark_cfg,
+            raw_log_path=raw_log_path, parsed_log_path=parsed_log_path, judge_log_path=judge_log_path,
+            raw_lock=raw_lock, parsed_lock=parsed_lock, judge_lock=judge_lock,
+        )
+
+        task_id = progress.add_task(
+            f"[cyan]{model_name} (N={N})" + (f" [dim]· {workers}t[/dim]" if workers > 1 else ""),
+            total=total_windows,
+        )
+
+        if workers > 1:
+            all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, N, strategy, max_res, step)]
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(_infer_window, clip=clip, window=window, **_win_args): (clip, window)
+                    for clip, window in all_windows
+                }
+                for future in as_completed(futures):
+                    clip, window = futures[future]
+                    try:
+                        frame_scores, js, lat, pt, ct = future.result()
+                        model_scores.extend(frame_scores)
+                        if js:
+                            model_judge.append(js)
+                        model_lat[key].append(lat)
+                        model_tok[key]["prompt"] += pt
+                        model_tok[key]["completion"] += ct
+                    except (KeyError, AttributeError, ImportError):
+                        raise
+                    except Exception:
+                        console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
+                        console.print(traceback.format_exc(limit=2), style="dim red")
+                    progress.update(task_id, advance=1)
+        else:
+            for clip in context.clips:
+                for window in sample_windows(clip, N, strategy, max_res, step):
+                    try:
+                        dbg_frame(model_name, clip.clip_id, window.center_frame, N)
+                        frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **_win_args)
+                        model_scores.extend(frame_scores)
+                        if js:
+                            model_judge.append(js)
+                            if js.judge_error and js.judge_error != "parse_failed":
+                                dbg_judge_error(js.judge_error)
+                            else:
+                                dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
+                        model_lat[key].append(lat)
+                        model_tok[key]["prompt"] += pt
+                        model_tok[key]["completion"] += ct
+                    except (KeyError, AttributeError, ImportError):
+                        raise
+                    except Exception:
+                        console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
+                        console.print(traceback.format_exc(limit=2), style="dim red")
+                    progress.update(task_id, advance=1)
+
+    return model_scores, model_judge, model_lat, model_tok
+
+
 def run_inference(context: PipelineContext) -> InferenceResults:
-    """Execute the inference and per-frame scoring loop for all models and clips."""
-    all_scores: list[FrameScore] = []
+    """Execute the inference loop. API models run in parallel; local models run sequentially."""
+    all_scores:   list[FrameScore] = []
     judge_scores: list[JudgeScore] = []
-    latencies: dict[tuple[str, int], list[float]] = {}
-    token_counts: dict[tuple[str, int], dict[str, int]] = {}
+    latencies:    dict[tuple[str, int], list[float]]       = {}
+    token_counts: dict[tuple[str, int], dict[str, int]]    = {}
 
     window_sizes = context.sampling_cfg["window_sizes"]
     strategy     = context.sampling_cfg.get("frame_selection", "uniform")
     max_res      = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
     step         = context.sampling_cfg.get("step", 1)
 
-    for model_name, model in context.models.items():
-        with console.status(f"[bold yellow]Loading model [magenta]{model_name}[/magenta]...", spinner="dots"):
-            try:
-                model.load()
-            except Exception:
-                console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
-                console.print(traceback.format_exc(limit=3), style="dim red")
-                continue
+    api_models   = {n: m for n, m in context.models.items() if m.parallel_workers > 1}
+    local_models = {n: m for n, m in context.models.items() if m.parallel_workers <= 1}
 
-        for N in window_sizes:
-            key = (model_name, N)
-            latencies[key], token_counts[key] = [], {"prompt": 0, "completion": 0}
-            _raw_dir = context.results_dir / "raw"
-            _prefix  = f"{model_name}_N{N}_"
-            raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
-            parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
-            judge_log_path  = _raw_dir / f"{_prefix}judge_outputs.jsonl"
-            total_windows = sum(len(sample_windows(c, N, strategy, max_res, step)) for c in context.clips)
-            
-            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(), console=console) as progress:
-                task_id = progress.add_task(f"[cyan]Processing {model_name} (N={N})", total=total_windows)
-                for clip in context.clips:
-                    for window in sample_windows(clip, N, strategy, max_res, step):
+    def _collect(result):
+        scores, jscores, lats, toks = result
+        all_scores.extend(scores)
+        judge_scores.extend(jscores)
+        for k, v in lats.items():
+            latencies.setdefault(k, []).extend(v)
+        for k, v in toks.items():
+            tc = token_counts.setdefault(k, {"prompt": 0, "completion": 0})
+            tc["prompt"] += v["prompt"]
+            tc["completion"] += v["completion"]
+
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+        BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+
+        # ── API models: load all then run in parallel ─────────────────────────
+        if api_models:
+            loaded_api: dict = {}
+            for name, model in api_models.items():
+                try:
+                    model.load()
+                    loaded_api[name] = model
+                except Exception:
+                    console.print(f"[bold red]✗ Failed to load {name}[/bold red]")
+                    console.print(traceback.format_exc(limit=3), style="dim red")
+
+            if loaded_api:
+                console.print(
+                    f"[bold cyan]Running {len(loaded_api)} API model(s) in parallel "
+                    f"({list(loaded_api)} · {next(iter(loaded_api.values())).parallel_workers} window threads each)[/bold cyan]"
+                )
+                with ThreadPoolExecutor(max_workers=len(loaded_api)) as executor:
+                    futures = {
+                        executor.submit(
+                            _run_single_model,
+                            name, model, context, window_sizes, strategy, max_res, step, progress,
+                        ): name
+                        for name, model in loaded_api.items()
+                    }
+                    for future in as_completed(futures):
+                        name = futures[future]
                         try:
-                            dbg_frame(model_name, clip.clip_id, window.center_frame, N)
-                            vlm_out = model.infer(window.frames, context.prompt)
-                            vlm_out.clip_id, vlm_out.center_frame, vlm_out.frame_names = clip.clip_id, window.center_frame, window.frame_names
-
-                            if context.benchmark_cfg["output"].get("save_raw_outputs"):
-                                with open(raw_log_path, "a") as f:
-                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "raw_text": vlm_out.raw_text, "latency_s": vlm_out.latency_s}) + "\n")
-
-                            parsed = parse(vlm_out.raw_text, window_size=N)
-                            dbg_parse(parsed.parse_success, len(parsed.frames), N, parsed.parse_error)
-
-                            if context.benchmark_cfg["output"].get("save_parsed_outputs"):
-                                with open(parsed_log_path, "a") as f:
-                                    f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "frame_names": window.frame_names, "parse_success": parsed.parse_success, "parsed": dataclasses.asdict(parsed)}) + "\n")
-
-                            frame_scores = score_window(parsed, window.annotations, model_name, clip.clip_id, window.frame_names, N)
-                            all_scores.extend(frame_scores)
-
-                            latencies[key].append(vlm_out.latency_s)
-                            token_counts[key]["prompt"] += vlm_out.prompt_tokens or 0
-                            token_counts[key]["completion"] += vlm_out.completion_tokens or 0
-
-                            judge_cfg = context.benchmark_cfg["scorers"].get("llm_judge")
-                            if judge_cfg and judge_cfg.get("enabled"):
-                                if not parsed.parse_success:
-                                    dbg_judge_skip("parse failed")
-                                else:
-                                    js = judge(parsed, window.annotation, model_name, clip.clip_id, window.center_frame, N, judge_cfg)
-                                    judge_scores.append(js)
-                                    if js.judge_error and js.judge_error != "parse_failed":
-                                        dbg_judge_error(js.judge_error)
-                                    else:
-                                        dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
-                                    if context.benchmark_cfg["output"].get("save_parsed_outputs"):
-                                        with open(judge_log_path, "a") as f:
-                                            f.write(json.dumps({"model": model_name, "N": N, "clip_id": clip.clip_id, "center_frame": window.center_frame, "judge_model": judge_cfg.get("model_id"), "scores": js.__dict__}) + "\n")
-                            
+                            _collect(future.result())
                         except (KeyError, AttributeError, ImportError):
-                            # Re-raise critical configuration or code errors
                             raise
                         except Exception:
-                            # Soft catch for inference/IO errors
-                            console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                            console.print(traceback.format_exc(limit=2), style="dim red")
-                        progress.update(task_id, advance=1)
+                            console.print(f"[bold red]✗ Model {name} failed[/bold red]")
+                            console.print(traceback.format_exc(limit=3), style="dim red")
 
-        try:
-            model.unload()
-        except Exception:
-            pass
+            for model in loaded_api.values():
+                try:
+                    model.unload()
+                except Exception:
+                    pass
+
+        # ── Local models: sequential ──────────────────────────────────────────
+        for model_name, model in local_models.items():
+            with console.status(f"[bold yellow]Loading [magenta]{model_name}[/magenta]...", spinner="dots"):
+                try:
+                    model.load()
+                except Exception:
+                    console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
+                    console.print(traceback.format_exc(limit=3), style="dim red")
+                    continue
+            try:
+                _collect(_run_single_model(model_name, model, context, window_sizes, strategy, max_res, step, progress))
+            finally:
+                try:
+                    model.unload()
+                except Exception:
+                    pass
+
     return InferenceResults(all_scores, judge_scores, latencies, token_counts)
 
 def run_scoring(results: InferenceResults) -> list[ModelSummary]:

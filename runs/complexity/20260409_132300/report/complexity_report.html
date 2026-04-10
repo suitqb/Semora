@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+.r1 {font-weight: bold}
+.r2 {color: #808000; text-decoration-color: #808000; font-weight: bold}
+.r3 {color: #7f7f7f; text-decoration-color: #7f7f7f}
+.r4 {color: #7f7f7f; text-decoration-color: #7f7f7f; font-weight: bold}
+.r5 {font-style: italic}
+.r6 {color: #800080; text-decoration-color: #800080; font-weight: bold; font-style: italic}
+.r7 {color: #008080; text-decoration-color: #008080; font-weight: bold}
+.r8 {color: #bf7f7f; text-decoration-color: #bf7f7f}
+.r9 {color: #7fbf7f; text-decoration-color: #7fbf7f}
+.r10 {color: #bfbf7f; text-decoration-color: #bfbf7f}
+.r11 {color: #008000; text-decoration-color: #008000; font-weight: bold}
+body {
+    color: #000000;
+    background-color: #ffffff;
+}
+</style>
+</head>
+<body>
+    <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><code style="font-family:inherit">
+<span class="r1">Complexity Analysis — 20260409_132300</span>
+<span class="r2">⚠  No judge outputs found.</span>
+<span class="r3">  The primary metric </span><span class="r4">(</span><span class="r3">completeness</span><span class="r4">)</span><span class="r3"> requires the LLM judge.</span>
+<span class="r3">  Enable it in benchmark.yaml → scorers.llm_judge.enabled: true</span>
+<span class="r3">  Only symbolic F1 will be shown — it does not reliably measure</span>
+<span class="r3">  entity detection completeness </span><span class="r4">(</span><span class="r3">set-based, misses count as equal</span><span class="r4">)</span><span class="r3">.</span>
+
+<span class="r5">   </span><span class="r6">mistral-large</span><span class="r5"> · N=1 — Complexity    </span>
+<span class="r5">      degradation by entity count      </span>
+                                       
+ <span class="r7"> Entities </span> <span class="r7"> Frames </span> <span class="r7"> F1 Ped </span> <span class="r7"> F1 Veh </span> 
+ ───────────────────────────────────── 
+     1      <span class="r3">   1    </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     2      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.600</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.333</span><span class="r3"> </span> 
+                                       
+     4      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.893</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     5      <span class="r3">   1    </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.778</span><span class="r3"> </span> 
+                                       
+     7      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.733</span><span class="r3"> </span> <span class="r3">  </span><span class="r10">0.444</span><span class="r3"> </span> 
+                                       
+     8      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">1.000</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     9      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.933</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.933</span><span class="r3"> </span> 
+                                       
+     10     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.760</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     12     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.833</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.778</span><span class="r3"> </span> 
+                                       
+     13     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.793</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     18     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.747</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.711</span><span class="r3"> </span> 
+                                       
+     23     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     27     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.727</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     28     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.767</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.889</span><span class="r3"> </span> 
+                                       
+     30     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.573</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     32     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.660</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     34     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.627</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     36     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.627</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     38     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.581</span><span class="r3"> </span> <span class="r3">  </span><span class="r10">0.444</span><span class="r3"> </span> 
+                                       
+     40     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.627</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+
+<span class="r5">   </span><span class="r6">mistral-medium</span><span class="r5"> · N=1 — Complexity   </span>
+<span class="r5">      degradation by entity count      </span>
+                                       
+ <span class="r7"> Entities </span> <span class="r7"> Frames </span> <span class="r7"> F1 Ped </span> <span class="r7"> F1 Veh </span> 
+ ───────────────────────────────────── 
+     1      <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.400</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     2      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.600</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.333</span><span class="r3"> </span> 
+                                       
+     4      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.893</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">1.000</span><span class="r3"> </span> 
+                                       
+     5      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.733</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.778</span><span class="r3"> </span> 
+                                       
+     7      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.867</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.778</span><span class="r3"> </span> 
+                                       
+     8      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.800</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     9      <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.933</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.933</span><span class="r3"> </span> 
+                                       
+     10     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.727</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     12     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.893</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.711</span><span class="r3"> </span> 
+                                       
+     13     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.760</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.611</span><span class="r3"> </span> 
+                                       
+     18     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.597</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.711</span><span class="r3"> </span> 
+                                       
+     23     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.624</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.711</span><span class="r3"> </span> 
+                                       
+     27     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.727</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     28     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.600</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.889</span><span class="r3"> </span> 
+                                       
+     30     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.493</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     32     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.714</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+     34     <span class="r3">   1    </span> <span class="r3">  </span><span class="r9">0.668</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     36     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.493</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     38     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.581</span><span class="r3"> </span> <span class="r3">  </span><span class="r9">0.667</span><span class="r3"> </span> 
+                                       
+     40     <span class="r3">   1    </span> <span class="r3">  </span><span class="r10">0.513</span><span class="r3"> </span> <span class="r3">  </span><span class="r8">0.000</span><span class="r3"> </span> 
+                                       
+
+<span class="r11">CSV saved:</span> runs/complexity/20260409_132300/report/complexity_20260409_132300.csv
+</code></pre>
+</body>
+</html>

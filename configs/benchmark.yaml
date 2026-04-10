@@ -1,9 +1,6 @@
 benchmark:
   run_id: null    # null = timestamp auto-generated (YYYYMMDD_HHMMSS)
 
-  prompt:
-    version: v2   # prompts/extraction_v2.txt
-
   scorers:
     titan_gt: true
     llm_judge:

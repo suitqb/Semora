@@ -24,6 +24,7 @@ class BaseVLM(ABC):
         self.name = name
         self.config = config
         self._loaded = False
+        self.parallel_workers: int = config.get("parallel_workers", 1)
 
     @abstractmethod
     def load(self) -> None:

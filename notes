@@ -1,0 +1,74 @@
+Agure python
+Demander à un llm mistral comment rédiger un prompt, expliquer, donner un cookbook si y'en a un, et demander à faire un prompt pour le modèle lui même.
+Tester les différents prompt pour faire un comparatif.
+Finir le benchmark et faire tourner au max les benchmarks
+Fine tuner un modèle ? (JSON?) Few shot ?
+100 de batch de 100 images, prendre une vidéo pour faire un batch
+Prendre plus d'image pour faire les tests.
+Faire tourner le code sur ma machine pour faire le test de molmo2.
+Aggreger les résultats via Agure (ou autre lib python) pour rendre les résultats lisible et accessible pour faire de l'analyse statistique.
+Regarder pour brancher un autre dataset au besoin
+Choisir ce qu'on met dans le graphe
+Trouver un dataset capable de me donner les relations dans l'image.
+
+Regarder comment extraire les bonnes données et fournir toutes ces données dans le graphe au format voulu
+Regarder comment potentiellement implémenter des layers pour le traitement de l'image pour extraire des données supplémentaire en plus de celle du VLM
+
+Faire des points avec lucas
+
+Pierre :
+regarder pour faire du fine tunning mistral
+
+Demander pour une lettre de recommandation
+
+
+# CR Réunion — 09/04/2026
+
+## Participants
+- ROMET Pierre (PI-Lab)
+- BALEZEAU Quentin (Stagiaire)
+- COUSSY Lucas (Stagiaire)
+
+## Minutes
+
+- Discussion autour des LLMs et de la pipeline :
+    - Comment faire les prompts, les faire avec le modèle qui va être requêté
+    - Utiliser plusieurs scènes différentes et beaucoup plus d'images pour avoir une analyse statistique plus fiable
+    - Ajouter quelques éléments au pipeline pour pouvoir faire l'analyse statistique
+    - Check des résultats pour la détection, peut-être une mise en place d'un module de tracking peut être pertinent (à confirmer avec les vrais résultats lundi)
+- Discussion autour de la RLS de Lucas :
+    - Retour de Lucas sur les architectures probables pour le module de prédiction
+    - Premières idées du format de graphe voulu pour le module de prédiction
+    - Sélection partielle du module de prédiction
+- Point sur l'utilisation d'Azure DevOps
+
+## Actions
+
+### @Quentin
+
+**Prompting & évaluation des modèles**
+- Interroger un LLM Mistral sur la rédaction de prompts efficaces : récupérer les explications,
+  un éventuel cookbook, et lui faire générer un prompt adapté au pipeline.
+- Tester les différents prompts produits et réaliser un comparatif des résultats.
+- Finir le benchmark et maximiser les runs (viser 100 batches × 100 images ;
+  utiliser une vidéo par batch pour bien diversifier les scènes (problèmes d'espace machine pour l'instant)).
+- Prendre davantage d'images pour enrichir les jeux de test.
+- Faire tourner le code en local pour tester Molmo2 sur ma propre machine.
+
+**Agrégation & analyse des résultats**
+- Intégrer Agure (ou une alternative Python adaptée) pour agréger les résultats
+  et les rendre exploitables pour l'analyse statistique.
+
+**Graphe & données**
+- Définir ce qui doit être inclus dans le graphe.
+- Identifier un dataset fournissant des annotations de relations inter-objets dans l'image.
+- Explorer comment brancher un dataset supplémentaire si nécessaire.
+- Documenter le flux d'extraction des données et leur injection dans le graphe au format cible.
+- Évaluer la faisabilité d'ajouter des couches de traitement d'image complémentaires
+  au VLM (détection, segmentation, etc.) pour enrichir les données extraites.
+
+**Coordination**
+- Organiser des points réguliers avec Lucas.
+
+### @Pierre
+- Se renseigner sur les options de fine-tuning Mistral (JSON, few-shot).

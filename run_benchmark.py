@@ -127,7 +127,7 @@ def main() -> None:
     parser.add_argument("--models",       type=str,  help="Comma-separated list of models to run")
     parser.add_argument("--models-cfg",   type=Path, default=Path("configs/models.yaml"))
     parser.add_argument("--clips-cfg",    type=Path, default=None,
-                        help="Path to clips config. Defaults to clips.yaml (extraction) "
+                        help="Path to clips config. Defaults to clips_extraction.yaml (extraction) "
                              "or clips_complexity.yaml (complexity) based on mode.")
     parser.add_argument("--benchmark-cfg",type=Path, default=Path("configs/benchmark.yaml"))
     parser.add_argument("--non-interactive", action="store_true",
@@ -160,7 +160,7 @@ def main() -> None:
         if mode == "complexity":
             args.clips_cfg = Path("configs/clips_complexity.yaml")
         else:
-            args.clips_cfg = Path("configs/clips.yaml")
+            args.clips_cfg = Path("configs/clips_extraction.yaml")
 
     # ── Mode: extraction (Plans 1 & 2) ────────────────────────────────────────
     available_models = get_available_models(args.models_cfg)
@@ -196,37 +196,8 @@ def main() -> None:
             selected_models=selected_models,
         )
 
-    # ── Post-run: always generate full report ─────────────────────────────────
-    report_dir = results_dir / "report"
-
-    if mode == "complexity":
-        from src.analysis import analyze_complexity as _ac
-        from src.analysis import plot_complexity as _pc
-
-        console.print("\n[bold cyan]── Complexity Analysis ───────────────────────[/bold cyan]")
-        _ac.run_complexity_analysis(results_dir, report_dir)
-
-        console.print("\n[bold cyan]── Complexity Plots ──────────────────────────[/bold cyan]")
-        _pc.run_complexity_plots(results_dir, report_dir)
-
-        _ac.save_report(report_dir)
-        console.print(f"[dim]reports saved → {report_dir}/[/dim]")
-
-    else:
-        from src.analysis import analyze as _analyze
-        from src.analysis import plot as _plot
-
-        console.print("\n[bold cyan]── Analysis ──────────────────────────────────[/bold cyan]")
-        _analyze.print_scores_table(results_dir)
-        _analyze.run_temporal_analysis(results_dir, report_dir)
-        _analyze.save_field_guide(report_dir)
-        console.print(f"[dim]Field guide → {report_dir}/field_guide.html[/dim]")
-
-        console.print("\n[bold cyan]── Plots ─────────────────────────────────────[/bold cyan]")
-        _plot.run_all_plots(results_dir, report_dir)
-
-        _analyze.save_report(report_dir)
-        console.print(f"[dim]reports saved → {report_dir}/[/dim]")
+    console.print(f"\n[bold green]✓ Raw results saved → {results_dir / 'raw'}[/bold green]")
+    console.print("[dim]Run [bold]streamlit run app.py[/bold] to explore results.[/dim]")
 
 if __name__ == "__main__":
     main()

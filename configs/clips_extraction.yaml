@@ -54,6 +54,9 @@ clips:
     video_path: clips/clip_785/images
     annotation_path: annotations/clip_785.csv
 
+prompt:
+  file: prompts/extraction_v2.txt
+
 sampling:
   window_sizes: [1, 4]
   frame_selection: last

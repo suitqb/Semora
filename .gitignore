@@ -7,7 +7,5 @@ datasets/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
-results/
-runs/
 CLAUDE.md
 plan_test.md
