@@ -21,7 +21,7 @@ class Llava(BaseVLM):
         self._model = LlavaNextForConditionalGeneration.from_pretrained(
             self.config["model_id"],
             torch_dtype=dtype,
-            device_map=self.config.get("device", "cuda"),
+            device_map="auto",
             attn_implementation=tf_cfg.get("attn_implementation", None),
             trust_remote_code=tf_cfg.get("trust_remote_code", False),
         )
@@ -47,7 +47,7 @@ class Llava(BaseVLM):
         ).to(self._model.device)
 
         t0 = time.perf_counter()
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self._model.generate(
                 **inputs,
                 max_new_tokens=self.config.get("max_new_tokens", 512),

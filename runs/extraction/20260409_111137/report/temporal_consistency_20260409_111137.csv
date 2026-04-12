@@ -1,5 +1,0 @@
-model_name,window_size,n_pairs,reid_rate,n_matches,n_candidates,agree_atomic_action,agree_simple_context,agree_communicative,agree_transporting,agree_age
-mistral-large,1,120,0.3448,70,203,0.6857,0.7429,0.8714,1.0,1.0
-mistral-large,4,105,0.4542,109,240,0.8716,0.6972,0.8807,0.9083,1.0
-mistral-medium,1,120,0.4044,110,272,0.7364,0.4818,0.9364,0.8545,1.0
-mistral-medium,4,78,0.4615,60,130,0.8667,0.3833,0.9,0.8167,1.0

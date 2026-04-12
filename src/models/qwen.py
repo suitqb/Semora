@@ -14,16 +14,24 @@ class Qwen(BaseVLM):
         dtype_str = self.config.get("dtype", "bfloat16")
         dtype = getattr(torch, dtype_str) if hasattr(torch, dtype_str) else torch.bfloat16
 
+        quant_kwargs = {}
+        if self.config.get("load_in_8bit"):
+            quant_kwargs["load_in_8bit"] = True
+        elif self.config.get("load_in_4bit"):
+            quant_kwargs["load_in_4bit"] = True
+        else:
+            quant_kwargs["torch_dtype"] = dtype
+
         self._processor = AutoProcessor.from_pretrained(
             self.config["model_id"],
             trust_remote_code=tf_cfg.get("trust_remote_code", False),
         )
         self._model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.config["model_id"],
-            torch_dtype=dtype,
-            device_map=self.config.get("device", "cuda"),
+            device_map="auto",
             attn_implementation=tf_cfg.get("attn_implementation", None),
             trust_remote_code=tf_cfg.get("trust_remote_code", False),
+            **quant_kwargs,
         )
         self._model.eval()
         self._loaded = True

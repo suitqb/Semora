@@ -15,7 +15,7 @@ _BACKENDS: dict[str, tuple[str, str]] = {
 # This mechanism handles 'local_transformers' and other models where 
 # the implementation is chosen based on the model ID rather than the backend name.
 _OVERRIDES: dict[str, tuple[str, str]] = {
-    "allenai/Molmo2-4B":                 ("src.models.molmo",   "Molmo"),
+    "allenai/Molmo2-8B":                 ("src.models.molmo",   "Molmo"),
     "Qwen/Qwen2.5-VL-7B-Instruct":       ("src.models.qwen",    "Qwen"),
     "llava-hf/llava-v1.6-mistral-7b-hf": ("src.models.llava",   "Llava"),
     "mistral-medium-latest":             ("src.models.mistral", "Mistral"),

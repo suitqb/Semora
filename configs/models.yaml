@@ -52,10 +52,10 @@ models:
 
   # ── Local models (Transformers) ───────────────────────────────────────────────
 
-  molmo2-4b:
+  molmo2-8b:
     enabled: false
     backend: local_transformers
-    model_id: allenai/Molmo2-4B
+    model_id: allenai/Molmo2-8B
     dtype: bfloat16
     max_new_tokens: 12000
     temperature: 0.0
