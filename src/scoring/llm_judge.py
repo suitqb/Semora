@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -58,6 +59,23 @@ class JudgeScore:
     overall: float
     justifications: dict[str, str]
     judge_error: str | None
+
+
+_JUDGE_KEYS = ("completeness", "semantic_richness", "spatial_relations", "overall")
+
+
+def _extract_scores_regex(text: str) -> dict | None:
+    """Last-resort extraction: pull numeric scores with regex, ignore justifications."""
+    data = {}
+    for key in _JUDGE_KEYS:
+        m = re.search(
+            rf"""['"]?{key}['"]?\s*:\s*\{{[^}}]*?['"]?score['"]?\s*:\s*([0-9]+(?:\.[0-9]+)?)""",
+            text,
+            re.DOTALL,
+        )
+        if m:
+            data[key] = {"score": float(m.group(1)), "justification": ""}
+    return data if len(data) == len(_JUDGE_KEYS) else None
 
 
 def _format_extraction(parsed: ParsedOutput, window_size: int) -> str:
@@ -177,12 +195,17 @@ def judge(
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError:
+            # Fallback 1: ast.literal_eval (handles single-quoted Python dicts)
             try:
                 import ast
                 data = ast.literal_eval(raw_text)
-            except Exception as je:
-                console.print(f"[bold red]⚠ Judge JSON Error ({model_id}):[/bold red]\n{raw_text}")
-                raise je
+            except Exception:
+                # Fallback 2: regex — scores only, ignore justifications
+                # (handles apostrophes inside single-quoted justification strings)
+                data = _extract_scores_regex(raw_text)
+                if data is None:
+                    console.print(f"[bold red]⚠ Judge JSON Error ({model_id}):[/bold red]\n{raw_text}")
+                    raise ValueError(f"Cannot parse judge output for {model_id}")
 
         if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
             console.print(f"[bold red]⚠ Judge response has unexpected structure ({model_id}): {data}[/bold red]")

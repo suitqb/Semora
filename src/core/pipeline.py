@@ -9,10 +9,13 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..tracking.context_builder import build_tracking_context
+from ..tracking.context_builder import (
+    build_tracking_context_from_detections,
+    build_detection_context,
+)
 
-_TRACKING_DIR = "data/titan/tracking"
-_TRACKING_PROMPT_FILE = Path("prompts/extraction_v4_tracking.txt")
+_TRACKING_PROMPT_FILE   = Path("prompts/extraction_v4_tracking.txt")
+_DETECTION_PROMPT_FILE  = Path("prompts/complexity_v2_detection.txt")
 
 import yaml
 from rich.console import Console
@@ -50,7 +53,8 @@ class PipelineContext:
     prompt: str
     mode: str = "extraction"
     tracking_enabled: bool = False
-    fallback_prompt: str = ""  # non-tracking prompt, used when tracking file is missing
+    fallback_prompt: str = ""   # non-tracking prompt, used when tracking context is empty
+    live_tracker: object = None  # LiveTracker instance (set when tracking_enabled=True)
 
 @dataclass
 class InferenceResults:
@@ -89,11 +93,20 @@ def load_pipeline(
     base_prompt = prompt_file.read_text().strip()
 
     if tracking_enabled:
-        prompt = _TRACKING_PROMPT_FILE.read_text().strip()
-        fallback_prompt = base_prompt
+        from ..tracking.detector import LiveTracker
+        live_tracker = LiveTracker()
+        if mode == "complexity":
+            prompt = _DETECTION_PROMPT_FILE.read_text().strip()
+            fallback_prompt = base_prompt
+            console.print("[bold cyan]Detection enabled — YOLO will annotate each frame before inference.[/bold cyan]")
+        else:
+            prompt = _TRACKING_PROMPT_FILE.read_text().strip()
+            fallback_prompt = base_prompt
+            console.print("[bold cyan]Live tracking enabled — YOLO will run per window.[/bold cyan]")
     else:
         prompt = base_prompt
         fallback_prompt = ""
+        live_tracker = None
 
     # Warn if max_new_tokens is too low for multi-frame output
     max_ws = max(sampling_cfg["window_sizes"], default=1)
@@ -134,18 +147,43 @@ def load_pipeline(
     return PipelineContext(
         models=models, clips=clips, benchmark_cfg=benchmark_cfg,
         sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt,
-        mode=mode, tracking_enabled=tracking_enabled, fallback_prompt=fallback_prompt,
+        mode=mode, tracking_enabled=tracking_enabled,
+        fallback_prompt=fallback_prompt, live_tracker=live_tracker,
     )
 
-def _resolve_window_prompt(context: PipelineContext, clip_id: str, frame_names: list[str]) -> str:
-    """Return the prompt for this window, injecting tracking context when enabled."""
-    if not context.tracking_enabled:
+def _resolve_window_prompt(
+    context: PipelineContext,
+    clip_id: str,
+    frame_names: list[str],
+    frames: list | None = None,
+) -> str:
+    """Return the prompt for this window, injecting YOLO context when enabled.
+
+    - complexity mode (N=1): plain detection → {detection_context}
+    - extraction mode (N>1): ByteTrack → {tracking_context}
+    """
+    if not context.tracking_enabled or context.live_tracker is None:
         return context.prompt
-    frame_ids = [Path(name).stem for name in frame_names]
-    tracking_ctx = build_tracking_context(clip_id, frame_ids, _TRACKING_DIR)
-    if not tracking_ctx:
-        return context.fallback_prompt
-    return context.prompt.replace("{tracking_context}", tracking_ctx)
+
+    actual_frames = frames or []
+
+    if context.mode == "complexity":
+        # Single-frame detection — no tracking state needed
+        frame = actual_frames[0] if actual_frames else None
+        if frame is None:
+            return context.fallback_prompt
+        detections = context.live_tracker.detect_frame(frame)
+        detection_ctx = build_detection_context(detections)
+        if not detection_ctx:
+            return context.fallback_prompt
+        return context.prompt.replace("{detection_context}", detection_ctx)
+    else:
+        # Multi-frame tracking
+        detections = context.live_tracker.process_frames(actual_frames)
+        tracking_ctx = build_tracking_context_from_detections(detections)
+        if not tracking_ctx:
+            return context.fallback_prompt
+        return context.prompt.replace("{tracking_context}", tracking_ctx)
 
 
 def _infer_window(
@@ -231,7 +269,7 @@ def _run_single_model(
                 futures = {
                     executor.submit(
                         _infer_window, clip=clip, window=window,
-                        **{**_win_args, "prompt": _resolve_window_prompt(context, clip.clip_id, window.frame_names)},
+                        **{**_win_args, "prompt": _resolve_window_prompt(context, clip.clip_id, window.frame_names, window.frames)},
                     ): (clip, window)
                     for clip, window in all_windows
                 }
@@ -253,10 +291,12 @@ def _run_single_model(
                     progress.update(task_id, advance=1)
         else:
             for clip in context.clips:
+                if context.live_tracker is not None:
+                    context.live_tracker.reset()
                 for window in sample_windows(clip, N, strategy, max_res, step):
                     try:
                         dbg_frame(model_name, clip.clip_id, window.center_frame, N)
-                        window_prompt = _resolve_window_prompt(context, clip.clip_id, window.frame_names)
+                        window_prompt = _resolve_window_prompt(context, clip.clip_id, window.frame_names, window.frames)
                         frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **{**_win_args, "prompt": window_prompt})
                         model_scores.extend(frame_scores)
                         if js:
@@ -376,7 +416,7 @@ def run_scoring(results: InferenceResults) -> list[ModelSummary]:
 
 def save_scores(summaries: list[ModelSummary], context: PipelineContext) -> None:
     """Save consolidated scores to disk."""
-    payload = build_scores_payload(summaries, tracking=context.tracking_enabled)
+    payload = build_scores_payload(summaries, tracking=context.tracking_enabled, mode=context.mode)
     with open(context.results_dir / "raw" / "scores.json", "w") as f:
         json.dump(payload, f, indent=2, default=str)
     console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))

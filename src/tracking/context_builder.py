@@ -1,61 +1,87 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 
 _HEADER = (
-    "PRE-COMPUTED TRACKING CONTEXT:\n"
-    "The following entities were detected and tracked by an external vision system.\n"
-    "Use the provided track_id values exactly — do not invent or modify them."
+    "TRACKING CONTEXT:\n"
+    "The following entities were detected by an external vision system. "
+    "Use their track_id as a stable reference if you observe them in the frames. "
+    "Only describe entities that are clearly visible — do not fabricate attributes "
+    "for entities you cannot see."
+)
+
+_DETECTION_HEADER = (
+    "PRE-DETECTION HINT (YOLO — may miss occluded or distant entities):\n"
+    "The following entities were detected in this frame. "
+    "Use this as a starting point for your scan, but look carefully for additional entities "
+    "that may be partially occluded, far away, or missed by the detector."
 )
 
 
-def build_tracking_context(
-    clip_id: str,
-    frame_ids: list[str],
-    tracking_dir: str,
-) -> str:
-    """Build a tracking context block for injection into a VLM prompt.
+def _format_detections(detections: list[dict]) -> str:
+    parts: list[str] = []
+    for det in detections:
+        label = "Pedestrian" if det["class_name"] == "person" else "Vehicle"
+        x1, y1, x2, y2 = (round(v) for v in det["bbox"])
+        parts.append(f"{label} #{det['track_id']} [bbox: {x1},{y1},{x2},{y2}]")
+    return ", ".join(parts) if parts else "(no detections)"
+
+
+def build_detection_context(detections: list[dict]) -> str:
+    """Build a detection context string for a single frame (no tracking state).
 
     Parameters
     ----------
-    clip_id:
-        Clip identifier, e.g. "clip_1".
-    frame_ids:
-        Ordered list of frame IDs in the current window, matching the stems
-        stored in the tracking JSON (e.g. ["00001", "00016"]).
-    tracking_dir:
-        Path to the directory containing per-clip tracking JSON files
-        (e.g. "data/titan/tracking").
+    detections:
+        Flat list of detections as returned by LiveTracker.detect_frame().
 
     Returns
     -------
-    Formatted string block ready for prompt injection, or "" if the tracking
-    file does not exist for this clip.
+    Formatted string ready for {detection_context} injection in the prompt,
+    or "" if no detections.
     """
-    tracking_path = Path(tracking_dir) / f"{clip_id}.json"
-    if not tracking_path.exists():
+    if not detections:
         return ""
 
-    with open(tracking_path) as f:
-        tracking_data: dict[str, list[dict]] = json.load(f)
+    n_peds = sum(1 for d in detections if d["class_name"] == "person")
+    n_vehs = len(detections) - n_peds
+
+    summary_parts = []
+    if n_peds:
+        summary_parts.append(f"{n_peds} pedestrian{'s' if n_peds > 1 else ''}")
+    if n_vehs:
+        summary_parts.append(f"{n_vehs} vehicle{'s' if n_vehs > 1 else ''}")
+    summary = ", ".join(summary_parts)
+
+    lines = [_DETECTION_HEADER, f"Detected: {summary}", ""]
+    for det in detections:
+        label = "Pedestrian" if det["class_name"] == "person" else f"Vehicle ({det['class_name']})"
+        x1, y1, x2, y2 = (round(v) for v in det["bbox"])
+        lines.append(f"  • {label} [bbox: {x1},{y1},{x2},{y2}]")
+
+    return "\n".join(lines)
+
+
+def build_tracking_context_from_detections(
+    frame_detections: list[list[dict]],
+) -> str:
+    """Build a tracking context string from live detection results.
+
+    Parameters
+    ----------
+    frame_detections:
+        Ordered list of detection lists — one list per frame in the window,
+        as returned by LiveTracker.process_frames().
+
+    Returns
+    -------
+    Formatted string ready for {tracking_context} injection in the prompt,
+    or "" if no detections at all.
+    """
+    if not frame_detections or not any(frame_detections):
+        return ""
 
     lines: list[str] = [_HEADER, ""]
-
-    for k, frame_id in enumerate(frame_ids, start=1):
-        detections = tracking_data.get(frame_id, [])
-
-        if not detections:
-            lines.append(f"Frame {k}: (no detections)")
-            continue
-
-        parts: list[str] = []
-        for det in detections:
-            label = "Pedestrian" if det["class_name"] == "person" else "Vehicle"
-            x1, y1, x2, y2 = (round(v) for v in det["bbox"])
-            parts.append(f"{label} #{det['track_id']} [bbox: {x1},{y1},{x2},{y2}]")
-
-        lines.append(f"Frame {k}: {', '.join(parts)}")
+    for k, detections in enumerate(frame_detections, start=1):
+        lines.append(f"Frame {k}: {_format_detections(detections)}")
 
     return "\n".join(lines)

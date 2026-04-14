@@ -8,7 +8,15 @@ from PIL import Image
 from dotenv import load_dotenv
 
 from .base import BaseVLM, VLMOutput
-from ..core.utils import pil_to_b64, extract_vlm_text
+from ..core.utils import pil_to_b64, extract_vlm_text, dbg, dbg_retry
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 5  # seconds between retries
+
+
+def _is_transient(e: Exception) -> bool:
+    s = str(e).lower()
+    return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit", "connection"))
 
 
 class Mistral(BaseVLM):
@@ -36,12 +44,12 @@ class Mistral(BaseVLM):
 
         self._client = MistralClient(
             api_key=api_key,
-            server_url=effective_url
+            server_url=effective_url,
         )
 
         self._model_id = self.config["model_id"]
-        self._timeout = cfg.get("timeout_s", 60)
-        self._loaded = True
+        self._timeout  = cfg.get("timeout_s", 120)
+        self._loaded   = True
 
     def infer(self, frames: List[Image.Image], prompt: str) -> VLMOutput:
         assert self._loaded
@@ -69,12 +77,26 @@ class Mistral(BaseVLM):
 
         t0 = time.perf_counter()
 
-        response = self._client.chat.complete(
-            model=self._model_id,
-            messages=messages,
-            max_tokens=self.config.get("max_new_tokens", 512),
-            temperature=self.config.get("temperature", 0.0),
-        )
+        response = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self._client.chat.complete(
+                    model=self._model_id,
+                    messages=messages,
+                    max_tokens=self.config.get("max_new_tokens", 512),
+                    temperature=self.config.get("temperature", 0.0),
+                    timeout=self._timeout,
+                )
+                break
+            except Exception as e:
+                if _is_transient(e) and attempt < _MAX_RETRIES - 1:
+                    dbg_retry(attempt + 1, _MAX_RETRIES, _RETRY_DELAY * (attempt + 1), str(e))
+                    time.sleep(_RETRY_DELAY * (attempt + 1))
+                    continue
+                raise
+
+        if response is None:
+            raise RuntimeError("Mistral: all retries exhausted.")
 
         latency = time.perf_counter() - t0
 
@@ -89,9 +111,7 @@ class Mistral(BaseVLM):
             center_frame="",
             frame_names=[],
             window_size=len(frames),
-
             raw_text=raw_text,
-
             latency_s=round(latency, 3),
             prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
             completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,

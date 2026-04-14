@@ -121,9 +121,13 @@ def aggregate(
     return sorted(summaries, key=lambda s: (s.model_name, s.window_size))
 
 
-def build_scores_payload(summaries: list[ModelSummary], tracking: bool) -> dict:
+def build_scores_payload(
+    summaries: list[ModelSummary],
+    tracking: bool,
+    mode: str = "extraction",
+) -> dict:
     """Wrap aggregated summaries with run metadata for serialisation to scores.json."""
     return {
-        "meta": {"tracking": tracking},
+        "meta": {"tracking": tracking, "mode": mode},
         "results": [s.__dict__ for s in summaries],
     }

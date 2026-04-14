@@ -1,0 +1,49 @@
+You are analyzing a single frame from a dense driving scene captured by an ego vehicle.
+
+{detection_context}
+
+Your PRIMARY goal is EXHAUSTIVE DETECTION: find EVERY person and EVERY vehicle visible,
+including partially occluded, distant, or background entities.
+Missing an entity is a critical error. A wrong attribute is a minor error.
+
+Before filling the JSON, mentally scan the image in zones: left, center, right, foreground, background.
+Count all persons. Count all vehicles. Then fill the JSON.
+
+Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
+
+{
+  "frame_1": {
+    "scene_context": {
+      "location": "<one of: road, sidewalk, crosswalk, intersection, parking, other>",
+      "description": "<one sentence describing the overall scene>"
+    },
+    "pedestrians": [
+      {
+        "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
+        "atomic_action": "<one of: walking, running, standing, sitting, bending, squatting, laying down, jumping, none of the above>",
+        "simple_context": "<one of: walking along the side of the road, walking on the road, waiting to cross street, crossing a street at pedestrian crossing, jaywalking (illegally crossing NOT at pedestrian crossing), entering a building, exiting a building, biking, motorcycling, none of the above>",
+        "communicative": "<one of: none of the above, looking into phone, talking on phone, talking in group>",
+        "transporting": "<one of: none of the above, carrying with both hands, pushing, pulling>",
+        "age": "<one of: child, adult, senior over 65>",
+        "spatial_relations": ["<relation to another entity or scene element>"]
+      }
+    ],
+    "vehicles": [
+      {
+        "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
+        "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
+        "motion_status": "<one of: stopped, moving, parked>",
+        "trunk_open": "<one of: open, closed>",
+        "doors_open": "<one of: open, closed>",
+        "spatial_relations": ["<relation to another entity or scene element>"]
+      }
+    ]
+  }
+}
+
+Rules:
+- Return exactly one key: "frame_1".
+- Include EVERY visible person and vehicle, even if partially occluded or far away.
+- If no pedestrians are visible, set "pedestrians" to [].
+- If no vehicles are visible, set "vehicles" to [].
+- Use only the allowed values listed for each field. Do not invent new categories.

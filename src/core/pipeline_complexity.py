@@ -53,6 +53,35 @@ def _serialize_frame_score(fs: FrameScore) -> dict:
     }
 
 
+def _precompute_prompts(context: PipelineContext, all_cw: list) -> dict[str, str]:
+    """Run YOLO detection once on all unique frames before parallel inference.
+
+    Returns {center_frame: resolved_prompt_str}.
+    Only used when tracking/detection is enabled (complexity mode).
+    """
+    from ..tracking.context_builder import build_detection_context
+
+    resolved: dict[str, str] = {}
+    seen: set[str] = set()
+    for cw in all_cw:
+        cf = cw.window.center_frame
+        if cf in seen:
+            continue
+        seen.add(cf)
+        frames = cw.window.frames
+        frame = frames[0] if frames else None
+        if frame is None or context.live_tracker is None:
+            resolved[cf] = context.fallback_prompt or context.prompt
+            continue
+        detections = context.live_tracker.detect_frame(frame)
+        detection_ctx = build_detection_context(detections)
+        if detection_ctx:
+            resolved[cf] = context.prompt.replace("{detection_context}", detection_ctx)
+        else:
+            resolved[cf] = context.fallback_prompt or context.prompt
+    return resolved
+
+
 def _infer_complexity_window(
     model, model_name: str, cw, N: int,
     prompt: str, benchmark_cfg: dict,
@@ -141,6 +170,7 @@ def _run_single_complexity_model(
     window_sizes: list[int], strategy: str, max_res,
     frames_per_count: int, max_entities, total_frames,
     progress: Progress,
+    prompt_map: dict[str, str] | None = None,
 ) -> tuple[list, dict, dict]:
     """Run all (N, window) iterations for one model against a shared progress bar."""
     model_scores: list = []
@@ -176,7 +206,7 @@ def _run_single_complexity_model(
 
         _win_args = dict(
             model=model, model_name=model_name, N=N,
-            prompt=context.prompt, benchmark_cfg=context.benchmark_cfg,
+            benchmark_cfg=context.benchmark_cfg,
             raw_log_path=raw_log_path, parsed_log_path=parsed_log_path,
             frame_scores_log_path=frame_scores_log_path,
             raw_lock=raw_lock, parsed_lock=parsed_lock, frame_lock=frame_lock,
@@ -187,10 +217,18 @@ def _run_single_complexity_model(
             total=len(all_cw),
         )
 
+        _pm = prompt_map or {}
+
+        def _resolved_prompt(cw) -> str:
+            return _pm.get(cw.window.center_frame, context.prompt)
+
         if workers > 1:
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(_infer_complexity_window, cw=cw, **_win_args): cw
+                    executor.submit(
+                        _infer_complexity_window, cw=cw,
+                        prompt=_resolved_prompt(cw), **_win_args,
+                    ): cw
                     for cw in all_cw
                 }
                 for future in as_completed(futures):
@@ -211,7 +249,9 @@ def _run_single_complexity_model(
             for cw in all_cw:
                 try:
                     dbg_frame(model_name, cw.window.clip_id, cw.window.center_frame, N)
-                    frame_scores, lat, pt, ct = _infer_complexity_window(cw=cw, **_win_args)
+                    frame_scores, lat, pt, ct = _infer_complexity_window(
+                        cw=cw, prompt=_resolved_prompt(cw), **_win_args,
+                    )
                     model_scores.extend(frame_scores)
                     model_lat[key].append(lat)
                     model_tok[key]["prompt"]     += pt
@@ -241,6 +281,23 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
     api_models   = {n: m for n, m in context.models.items() if m.parallel_workers > 1}
     local_models = {n: m for n, m in context.models.items() if m.parallel_workers <= 1}
 
+    # Pre-compute YOLO detections once (before any parallel inference)
+    prompt_map: dict[str, str] = {}
+    if context.tracking_enabled and context.live_tracker is not None:
+        # Build full window list to detect on all unique frames
+        _all_cw_for_detection = []
+        for clip in context.clips:
+            _all_cw_for_detection.extend(sample_complexity_windows(
+                clip, window_sizes[0], strategy, max_res, frames_per_count, max_entities,
+            ))
+        if total_frames is not None and len(_all_cw_for_detection) > total_frames:
+            _step = len(_all_cw_for_detection) / total_frames
+            _all_cw_for_detection = [_all_cw_for_detection[round(i * _step)] for i in range(total_frames)]
+        n_unique = len({cw.window.center_frame for cw in _all_cw_for_detection})
+        console.print(f"[cyan]Running YOLO detection on {n_unique} unique frames...[/cyan]")
+        prompt_map = _precompute_prompts(context, _all_cw_for_detection)
+        console.print(f"[green]✓ Detection done — {sum(1 for v in prompt_map.values() if '{detection_context}' not in v)}/{n_unique} frames with detections[/green]")
+
     def _collect(scores, lats, toks):
         all_scores.extend(scores)
         for k, v in lats.items():
@@ -253,6 +310,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
     _model_kwargs = dict(
         context=context, window_sizes=window_sizes, strategy=strategy, max_res=max_res,
         frames_per_count=frames_per_count, max_entities=max_entities, total_frames=total_frames,
+        prompt_map=prompt_map,
     )
 
     with Progress(
@@ -330,10 +388,20 @@ def run_complexity(
     clips_cfg_path: Path,
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
+    tracking: bool | None = None,
 ) -> Path:
     """Complexity pipeline entry point (Plan 3)."""
+    from .pipeline import _DETECTION_PROMPT_FILE
     try:
-        context   = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="complexity")
+        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="complexity")
+        if tracking is not None:
+            context.tracking_enabled = tracking
+            if tracking and context.live_tracker is None:
+                from ..tracking.detector import LiveTracker
+                context.live_tracker = LiveTracker()
+            if tracking and not context.fallback_prompt:
+                context.fallback_prompt = context.prompt
+                context.prompt = _DETECTION_PROMPT_FILE.read_text().strip()
         results   = _run_inference(context)
         summaries = run_scoring(results)
         save_scores(summaries, context)
