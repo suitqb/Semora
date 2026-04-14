@@ -52,5 +52,5 @@ sampling:
   frame_selection: uniform
   max_resolution: [1280, 720]
   frames_per_count: 5   # pre-sampling per clip, before global selection
-  total_frames: 100      # final frame count, evenly spread easy → hard
+  total_frames: 30      # final frame count, evenly spread easy → hard
   max_entities: null

@@ -85,7 +85,7 @@ class Mistral(BaseVLM):
                     messages=messages,
                     max_tokens=self.config.get("max_new_tokens", 512),
                     temperature=self.config.get("temperature", 0.0),
-                    timeout=self._timeout,
+                    timeout_ms=int(self._timeout * 1000),
                 )
                 break
             except Exception as e:

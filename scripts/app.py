@@ -422,7 +422,7 @@ def view_temporal_consistency(run_dir: Path) -> None:
             icon="⚠",
         )
 
-    _MATCH_THRESHOLD = 0.45
+    _MATCH_THRESHOLD = 0.10
 
     def _jaccard(a: str, b: str) -> float:
         sa, sb = set(a.lower().split()), set(b.lower().split())
@@ -533,9 +533,8 @@ def view_temporal_consistency(run_dir: Path) -> None:
         if data["has_tracking"] and data["n_candidates"]:
             reid = round(data["n_matches"] / data["n_candidates"], 3)
         else:
-            reid = None  # N/A — no stable track_ids, metric unreliable
-        row = {"Model": model, "N": N, "Re-ID rate": reid,
-               "Pairs": data["n_pairs"]}
+            reid = None  # Jaccard sur texte libre = inutilisable comme Re-ID
+        row = {"Model": model, "N": N, "Re-ID rate": reid, "Pairs": data["n_pairs"]}
         for field in PERSON_FIELDS:
             agrees = data["field_agrees"].get(field, [])
             row[field] = round(sum(agrees) / len(agrees), 3) if agrees else None
@@ -554,10 +553,10 @@ def view_temporal_consistency(run_dir: Path) -> None:
         width="stretch",
     )
     st.caption(
-        "Comparaison fenêtres **adjacentes** uniquement — évite de pénaliser les changements "
-        "légitimes d'entités sur de longues distances temporelles. "
-        "Avec tracking : matching par track_id exact, Re-ID = matches / candidats (track_id > 0). "
-        "Sans tracking : Re-ID affiché **—** (pas de track_ids stables, métrique non fiable). "
+        "Comparaison fenêtres **adjacentes** uniquement. "
+        "**Re-ID** : track_id exact (tracking requis) — `—` sans tracking. "
+        "**Accords de champs** : Jaccard ≥ "
+        f"{_MATCH_THRESHOLD:.0%} sur track_hint (indicatif sans tracking — cohérence stylistique, pas identité). "
         "**age** devrait être stable · action/context naturellement plus variables."
     )
 
