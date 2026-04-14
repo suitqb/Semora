@@ -9,3 +9,4 @@ __pycache__/
 .ipynb_checkpoints/
 CLAUDE.md
 plan_test.md
+yolov8l.pt
