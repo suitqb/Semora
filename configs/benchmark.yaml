@@ -1,6 +1,9 @@
 benchmark:
   run_id: null    # null = timestamp auto-generated (YYYYMMDD_HHMMSS)
 
+  features:
+    tracking: false   # set to true to inject YOLO+ByteTrack context into the prompt
+
   scorers:
     titan_gt: true
     llm_judge:

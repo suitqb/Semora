@@ -1,11 +1,13 @@
 # --- Core Dependencies ---
 PyYAML==6.0.3
 rich # added by audit
+numpy  # app.py (np arrays for radar/scatter charts)
 pandas # added by audit
 Pillow # added by audit
 python-dotenv==1.2.2
 
 # --- Model Backends & ML ---
+ultralytics  # YOLOv8 + ByteTrack for offline tracking pre-computation
 mistralai==2.1.0
 openai # added by audit
 torch # added by audit

@@ -9,6 +9,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ..tracking.context_builder import build_tracking_context
+
+_TRACKING_DIR = "data/titan/tracking"
+_TRACKING_PROMPT_FILE = Path("prompts/extraction_v4_tracking.txt")
+
 import yaml
 from rich.console import Console
 from rich.panel import Panel
@@ -24,7 +29,7 @@ from ..sampling.frame_sampler import sample_windows
 from ..parsing.output_parser import parse
 from ..scoring.titan_scorer import score_window
 from ..scoring.llm_judge import judge
-from ..scoring.aggregator import aggregate
+from ..scoring.aggregator import aggregate, build_scores_payload
 
 if TYPE_CHECKING:
     from ..models.base import BaseVLM
@@ -44,6 +49,8 @@ class PipelineContext:
     run_id: str
     prompt: str
     mode: str = "extraction"
+    tracking_enabled: bool = False
+    fallback_prompt: str = ""  # non-tracking prompt, used when tracking file is missing
 
 @dataclass
 class InferenceResults:
@@ -75,9 +82,18 @@ def load_pipeline(
             models_cfg[m_key]["enabled"] = m_key in selected_models
 
     sampling_cfg = clips_cfg["sampling"]
+    tracking_enabled = benchmark_cfg.get("features", {}).get("tracking", False)
+
     prompt_cfg = clips_cfg.get("prompt") or benchmark_cfg["prompt"]
     prompt_file = Path(prompt_cfg["file"])
-    prompt = prompt_file.read_text().strip()
+    base_prompt = prompt_file.read_text().strip()
+
+    if tracking_enabled:
+        prompt = _TRACKING_PROMPT_FILE.read_text().strip()
+        fallback_prompt = base_prompt
+    else:
+        prompt = base_prompt
+        fallback_prompt = ""
 
     # Warn if max_new_tokens is too low for multi-frame output
     max_ws = max(sampling_cfg["window_sizes"], default=1)
@@ -118,8 +134,19 @@ def load_pipeline(
     return PipelineContext(
         models=models, clips=clips, benchmark_cfg=benchmark_cfg,
         sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt,
-        mode=mode,
+        mode=mode, tracking_enabled=tracking_enabled, fallback_prompt=fallback_prompt,
     )
+
+def _resolve_window_prompt(context: PipelineContext, clip_id: str, frame_names: list[str]) -> str:
+    """Return the prompt for this window, injecting tracking context when enabled."""
+    if not context.tracking_enabled:
+        return context.prompt
+    frame_ids = [Path(name).stem for name in frame_names]
+    tracking_ctx = build_tracking_context(clip_id, frame_ids, _TRACKING_DIR)
+    if not tracking_ctx:
+        return context.fallback_prompt
+    return context.prompt.replace("{tracking_context}", tracking_ctx)
+
 
 def _infer_window(
     model, model_name: str, clip, window, N: int,
@@ -202,7 +229,10 @@ def _run_single_model(
             all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, N, strategy, max_res, step)]
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 futures = {
-                    executor.submit(_infer_window, clip=clip, window=window, **_win_args): (clip, window)
+                    executor.submit(
+                        _infer_window, clip=clip, window=window,
+                        **{**_win_args, "prompt": _resolve_window_prompt(context, clip.clip_id, window.frame_names)},
+                    ): (clip, window)
                     for clip, window in all_windows
                 }
                 for future in as_completed(futures):
@@ -226,7 +256,8 @@ def _run_single_model(
                 for window in sample_windows(clip, N, strategy, max_res, step):
                     try:
                         dbg_frame(model_name, clip.clip_id, window.center_frame, N)
-                        frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **_win_args)
+                        window_prompt = _resolve_window_prompt(context, clip.clip_id, window.frame_names)
+                        frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **{**_win_args, "prompt": window_prompt})
                         model_scores.extend(frame_scores)
                         if js:
                             model_judge.append(js)
@@ -345,8 +376,9 @@ def run_scoring(results: InferenceResults) -> list[ModelSummary]:
 
 def save_scores(summaries: list[ModelSummary], context: PipelineContext) -> None:
     """Save consolidated scores to disk."""
+    payload = build_scores_payload(summaries, tracking=context.tracking_enabled)
     with open(context.results_dir / "raw" / "scores.json", "w") as f:
-        json.dump([s.__dict__ for s in summaries], f, indent=2, default=str)
+        json.dump(payload, f, indent=2, default=str)
     console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))
 
 
@@ -384,10 +416,16 @@ def run(
     clips_cfg_path: Path,
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
+    tracking: bool | None = None,
 ) -> Path:
     """Main pipeline entry point. Orchestrates loading, inference, scoring, and reporting."""
     try:
-        context   = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="extraction")
+        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="extraction")
+        if tracking is not None:
+            context.tracking_enabled = tracking
+            if tracking and not context.fallback_prompt:
+                context.fallback_prompt = context.prompt
+                context.prompt = _TRACKING_PROMPT_FILE.read_text().strip()
         results   = run_inference(context)
         summaries = run_scoring(results)
         report_results(summaries, context)

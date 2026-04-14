@@ -74,6 +74,48 @@ def interactive_mode_selection() -> str:
     return modes[current_index][0]
 
 
+def interactive_tracking_selection(current: bool) -> bool:
+    from rich.live import Live
+
+    options = [False, True]
+    current_index = 1 if current else 0
+
+    def generate_table() -> Table:
+        table = Table(
+            title="[bold cyan]Tracking Context (YOLO+ByteTrack)[/bold cyan]\n"
+                  "[dim](↑↓: Navigate, Enter: Select)[/dim]",
+            box=None,
+        )
+        table.add_column("", justify="center", width=3)
+        table.add_column("", width=6)
+        table.add_column("Description", style="dim")
+
+        rows = [
+            (False, "[red]OFF[/red]", "Standard prompt — no pre-computed tracking data"),
+            (True,  "[green]ON[/green]",  "Inject YOLO track IDs into the prompt (requires precomputed data)"),
+        ]
+        for i, (_, label, desc) in enumerate(rows):
+            prefix = ">" if i == current_index else " "
+            style  = "bold white on blue" if i == current_index else ""
+            table.add_row(prefix, label, desc, style=style)
+        return table
+
+    with Live(generate_table(), auto_refresh=False, console=console) as live:
+        while True:
+            live.update(generate_table(), refresh=True)
+            key = get_key()
+            if key == "\x1b[A":
+                current_index = (current_index - 1) % len(options)
+            elif key == "\x1b[B":
+                current_index = (current_index + 1) % len(options)
+            elif key in ("\r", "\n"):
+                break
+            elif key == "\x03":
+                sys.exit(0)
+
+    return options[current_index]
+
+
 def interactive_model_selection(available_models: list[str]) -> list[str]:
     from rich.live import Live
     
@@ -179,6 +221,15 @@ def main() -> None:
     if not selected_models and not args.use_config:
         selected_models = available_models
 
+    # ── Tracking selection (extraction only, interactive only) ────────────────
+    tracking_override: bool | None = None
+    if mode == "extraction" and not args.non_interactive:
+        import yaml as _yaml
+        with open(args.benchmark_cfg) as _f:
+            _bcfg = _yaml.safe_load(_f)
+        _current_tracking = _bcfg.get("benchmark", {}).get("features", {}).get("tracking", False)
+        tracking_override = interactive_tracking_selection(_current_tracking)
+
     # ── Run benchmark ─────────────────────────────────────────────────────────
     if mode == "complexity":
         from src.core.pipeline_complexity import run_complexity
@@ -194,6 +245,7 @@ def main() -> None:
             clips_cfg_path=args.clips_cfg,
             benchmark_cfg_path=args.benchmark_cfg,
             selected_models=selected_models,
+            tracking=tracking_override,
         )
 
     console.print(f"\n[bold green]✓ Raw results saved → {results_dir / 'raw'}[/bold green]")

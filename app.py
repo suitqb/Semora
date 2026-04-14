@@ -140,7 +140,24 @@ def list_runs() -> dict[str, list[Path]]:
 @st.cache_data
 def load_scores(run_dir: Path) -> list[dict]:
     path = run_dir / "raw" / "scores.json"
-    return json.loads(path.read_text()) if path.exists() else []
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    # New format: {"meta": {...}, "results": [...]}; old format: plain list
+    if isinstance(data, dict):
+        return data.get("results", [])
+    return data
+
+
+@st.cache_data
+def load_run_meta(run_dir: Path) -> dict:
+    path = run_dir / "raw" / "scores.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text())
+    if isinstance(data, dict):
+        return data.get("meta", {})
+    return {}
 
 
 @st.cache_data
@@ -614,6 +631,89 @@ def view_completeness_vs_entities(judge_df: pd.DataFrame) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Compare Runs tab (inside extraction analysis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def view_compare_runs_tab(extraction_runs: list[Path]) -> None:
+    """Diff table between two extraction runs, with Δ columns colour-coded."""
+    if not extraction_runs:
+        st.info("No extraction runs available.")
+        return
+
+    def _run_label(run_dir: Path) -> str:
+        meta = load_run_meta(run_dir)
+        tracking = "on" if meta.get("tracking") else "off"
+        return f"{run_dir.name} | tracking={tracking}"
+
+    run_options = {_run_label(r): r for r in extraction_runs}
+    labels = list(run_options.keys())
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        label_a = st.selectbox("Run A", labels, key="cmp_tab_run_a")
+    with col_b:
+        label_b = st.selectbox("Run B", labels, index=min(1, len(labels) - 1), key="cmp_tab_run_b")
+
+    if label_a == label_b:
+        st.info("Select two different runs to compare.")
+        return
+
+    scores_a = {(s["model_name"], s["window_size"]): s for s in load_scores(run_options[label_a])}
+    scores_b = {(s["model_name"], s["window_size"]): s for s in load_scores(run_options[label_b])}
+
+    common_keys = sorted(set(scores_a) & set(scores_b))
+    if not common_keys:
+        st.warning("No common (model, window_size) pairs found between the two runs.")
+        return
+
+    def _delta(va, vb):
+        return round(vb - va, 4) if va is not None and vb is not None else None
+
+    rows = []
+    for model, ws in common_keys:
+        sa, sb = scores_a[(model, ws)], scores_b[(model, ws)]
+        rows.append({
+            "model":       model,
+            "window_size": ws,
+            "F1_ped (A)":  sa.get("f1_pedestrians"),
+            "F1_ped (B)":  sb.get("f1_pedestrians"),
+            "ΔF1_ped":     _delta(sa.get("f1_pedestrians"), sb.get("f1_pedestrians")),
+            "F1_veh (A)":  sa.get("f1_vehicles"),
+            "F1_veh (B)":  sb.get("f1_vehicles"),
+            "ΔF1_veh":     _delta(sa.get("f1_vehicles"), sb.get("f1_vehicles")),
+            "F1_ctx (A)":  sa.get("f1_context"),
+            "F1_ctx (B)":  sb.get("f1_context"),
+            "ΔF1_ctx":     _delta(sa.get("f1_context"), sb.get("f1_context")),
+        })
+
+    df = pd.DataFrame(rows)
+    delta_cols = ["ΔF1_ped", "ΔF1_veh", "ΔF1_ctx"]
+    score_cols = ["F1_ped (A)", "F1_ped (B)", "F1_veh (A)", "F1_veh (B)", "F1_ctx (A)", "F1_ctx (B)"]
+
+    def _style_row(row):
+        styles = [""] * len(row)
+        for col in delta_cols:
+            if col not in df.columns:
+                continue
+            idx = df.columns.get_loc(col)
+            val = row.get(col)
+            if val is None or val == 0:
+                styles[idx] = "color: #888"
+            elif val > 0:
+                styles[idx] = "color: #6cf5a8"
+            else:
+                styles[idx] = "color: #f57c6c"
+        return styles
+
+    fmt = {c: "{:.4f}" for c in delta_cols + score_cols if c in df.columns}
+    st.dataframe(
+        df.style.apply(_style_row, axis=1).format(fmt, na_rep="—"),
+        width="stretch",
+        height=min(600, 80 + len(rows) * 38),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4 & 5. Multi-run comparison page
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -830,12 +930,13 @@ def main() -> None:
                     if s["model_name"] in sel_models and s["window_size"] in sel_ns]
 
         tabs = st.tabs(["Overview", "Per-field", "Judge Scores",
-                        "Temporal Consistency", "Latency"])
+                        "Temporal Consistency", "Latency", "Compare Runs"])
         with tabs[0]: view_scores_overview(filtered)
         with tabs[1]: view_field_detail(filtered)
         with tabs[2]: view_judge_scores(filtered)
         with tabs[3]: view_temporal_consistency(run_dir)
         with tabs[4]: view_latency(filtered)
+        with tabs[5]: view_compare_runs_tab(all_runs.get("extraction", []))
 
     elif mode == "complexity":
         frame_df, judge_df = _load_complexity_data(run_dir)
