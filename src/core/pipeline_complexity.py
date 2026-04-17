@@ -1,16 +1,13 @@
 """Complexity pipeline — Plan 3 (scene density scaling).
 
-Reuses load_pipeline / run_scoring / save_scores from pipeline.py.
-Only the inference loop differs: frames are selected by GT entity density
-via complexity_sampler instead of uniform temporal sampling.
+Only measures PDR (Pedestrian Detection Rate) stratified by scene density.
+F1 scoring and LLM judge are Plan 1 concerns — not computed here.
 
-Each JSONL record is enriched with `bucket`, `n_persons_gt`, `n_vehicles_gt`
-so that post-run analysis can stratify scores by complexity level without
-re-reading GT CSVs.
+Each JSONL record contains n_persons_gt, n_vehicles_gt, n_persons_pred,
+n_vehicles_pred so the app can compute PDR = min(pred/gt, 1) per frame.
 """
 
 from __future__ import annotations
-import dataclasses
 import json
 import threading
 import traceback
@@ -23,44 +20,65 @@ from rich.progress import (
 )
 
 from ..core.console import console
-from ..core.utils import dbg_frame, dbg_parse
+from ..core.utils import dbg_frame
 from ..parsing.output_parser import parse
-from ..scoring.titan_scorer import score_window, FrameScore
 from ..sampling.complexity_sampler import sample_complexity_windows
 from rich.panel import Panel
 
 from .pipeline import (
-    load_pipeline, run_scoring, save_scores,
+    load_pipeline,
     PipelineContext, InferenceResults,
 )
 
 
-def _serialize_frame_score(fs: FrameScore) -> dict:
-    return {
-        "clip_id":      fs.clip_id,
-        "center_frame": fs.center_frame,
-        "model_name":   fs.model_name,
-        "window_size":  fs.window_size,
-        "parse_success": fs.parse_success,
-        "person_scores": {
-            field: {"precision": s.precision, "recall": s.recall, "f1": s.f1}
-            for field, s in fs.person_scores.items()
-        },
-        "vehicle_scores": {
-            field: {"precision": s.precision, "recall": s.recall, "f1": s.f1}
-            for field, s in fs.vehicle_scores.items()
-        },
-    }
-
-
 def _precompute_prompts(context: PipelineContext, all_cw: list) -> dict[str, str]:
-    """Run YOLO detection once on all unique frames before parallel inference.
+    """Run YOLO+ByteTrack detection in chronological order per clip.
+
+    For each clip, all frames are processed sequentially with a persistent
+    ByteTrack state (reset between clips). Only detections for target frames
+    are retained. This mimics a live video stream: ByteTrack naturally
+    accumulates temporal context from every preceding frame without
+    pre-scanning future frames.
 
     Returns {center_frame: resolved_prompt_str}.
-    Only used when tracking/detection is enabled (complexity mode).
     """
     from ..tracking.context_builder import build_detection_context
 
+    if context.live_tracker is None:
+        fallback = context.fallback_prompt or context.prompt
+        return {cw.window.center_frame: fallback for cw in all_cw}
+
+    # Build clip lookup and per-clip target set
+    clip_by_id  = {clip.clip_id: clip for clip in context.clips}
+    max_res     = tuple(context.sampling_cfg.get("max_resolution") or [1280, 720])
+
+    # Group target frames by clip
+    targets_by_clip: dict[str, set[str]] = {}
+    for cw in all_cw:
+        targets_by_clip.setdefault(cw.window.clip_id, set()).add(cw.window.center_frame)
+
+    # Per-frame detection cache: {center_frame: [detections]}
+    detection_cache: dict[str, list[dict]] = {}
+
+    for clip_id, target_frames in targets_by_clip.items():
+        clip = clip_by_id.get(clip_id)
+        if clip is None:
+            continue
+
+        context.live_tracker.reset()
+        console.print(
+            f"[cyan]  Clip {clip_id}: scanning {len(clip.frame_names)} frames "
+            f"(targets: {len(target_frames)})[/cyan]"
+        )
+
+        for frame_name in clip.frame_names:
+            img = clip.get_frame(frame_name, max_resolution=max_res)
+            # process_frames maintains ByteTrack state via persist=True
+            dets = context.live_tracker.process_frames([img])[0]
+            if frame_name in target_frames:
+                detection_cache[frame_name] = dets
+
+    # Build resolved prompts from cache
     resolved: dict[str, str] = {}
     seen: set[str] = set()
     for cw in all_cw:
@@ -68,27 +86,24 @@ def _precompute_prompts(context: PipelineContext, all_cw: list) -> dict[str, str
         if cf in seen:
             continue
         seen.add(cf)
-        frames = cw.window.frames
-        frame = frames[0] if frames else None
-        if frame is None or context.live_tracker is None:
-            resolved[cf] = context.fallback_prompt or context.prompt
-            continue
-        detections = context.live_tracker.detect_frame(frame)
-        detection_ctx = build_detection_context(detections)
+
+        dets = detection_cache.get(cf, [])
+        detection_ctx = build_detection_context(dets)
         if detection_ctx:
             resolved[cf] = context.prompt.replace("{detection_context}", detection_ctx)
         else:
             resolved[cf] = context.fallback_prompt or context.prompt
+
     return resolved
 
 
 def _infer_complexity_window(
     model, model_name: str, cw, N: int,
     prompt: str, benchmark_cfg: dict,
-    raw_log_path: Path, parsed_log_path: Path, frame_scores_log_path: Path,
-    raw_lock: threading.Lock, parsed_lock: threading.Lock, frame_lock: threading.Lock,
+    raw_log_path: Path, parsed_log_path: Path, pdr_log_path: Path,
+    raw_lock: threading.Lock, parsed_lock: threading.Lock, pdr_lock: threading.Lock,
 ):
-    """Process a single complexity window: infer → parse → score. Thread-safe."""
+    """Process a single complexity window: infer → parse → write PDR record. Thread-safe."""
     window  = cw.window
     clip_id = window.clip_id
 
@@ -127,19 +142,13 @@ def _infer_complexity_window(
             "center_frame": window.center_frame,
             "frame_names": window.frame_names,
             "parse_success": parsed.parse_success,
-            "parsed": dataclasses.asdict(parsed),
             **_meta,
         }) + "\n"
         with parsed_lock:
             with open(parsed_log_path, "a") as f:
                 f.write(record)
 
-    frame_scores = score_window(
-        parsed, window.annotations, model_name,
-        clip_id, window.frame_names, N,
-    )
-
-    # Predicted entity counts for the center frame
+    # PDR: predicted entity counts for the center frame only
     center_win_idx = window.frame_names.index(window.center_frame)
     if parsed.parse_success and center_win_idx < len(parsed.frames):
         fo = parsed.frames[center_win_idx]
@@ -149,110 +158,91 @@ def _infer_complexity_window(
         n_persons_pred  = 0
         n_vehicles_pred = 0
 
-    frame_score_lines = "".join(
-        json.dumps({
-            **_serialize_frame_score(fs),
-            **_meta,
-            "n_persons_pred":  n_persons_pred,
-            "n_vehicles_pred": n_vehicles_pred,
-        }) + "\n"
-        for fs in frame_scores
-    )
-    with frame_lock:
-        with open(frame_scores_log_path, "a") as f:
-            f.write(frame_score_lines)
+    pdr_record = json.dumps({
+        "model_name":      model_name,
+        "window_size":     N,
+        "clip_id":         clip_id,
+        "center_frame":    window.center_frame,
+        "parse_success":   parsed.parse_success,
+        "n_persons_pred":  n_persons_pred,
+        "n_vehicles_pred": n_vehicles_pred,
+        **_meta,
+    }) + "\n"
+    with pdr_lock:
+        with open(pdr_log_path, "a") as f:
+            f.write(pdr_record)
 
-    return frame_scores, vlm_out.latency_s, vlm_out.prompt_tokens or 0, vlm_out.completion_tokens or 0
+    return vlm_out.latency_s, vlm_out.prompt_tokens or 0, vlm_out.completion_tokens or 0
 
 
 def _run_single_complexity_model(
     model_name: str, model, context: PipelineContext,
-    window_sizes: list[int], strategy: str, max_res,
-    frames_per_count: int, max_entities, total_frames,
+    max_res, frames_per_count: int, max_entities, total_frames,
     progress: Progress,
     prompt_map: dict[str, str] | None = None,
-) -> tuple[list, dict, dict]:
-    """Run all (N, window) iterations for one model against a shared progress bar."""
-    model_scores: list = []
-    model_lat:    dict = {}
-    model_tok:    dict = {}
+) -> tuple[dict, dict]:
+    """Run all frame iterations for one model against a shared progress bar."""
+    model_lat: dict = {}
+    model_tok: dict = {}
 
-    for N in window_sizes:
-        key = (model_name, N)
-        model_lat[key] = []
-        model_tok[key] = {"prompt": 0, "completion": 0}
+    N = 1
+    key = (model_name, N)
+    model_lat[key] = []
+    model_tok[key] = {"prompt": 0, "completion": 0}
 
-        _raw_dir              = context.results_dir / "raw"
-        _prefix               = f"{model_name}_N{N}_"
-        raw_log_path          = _raw_dir / f"{_prefix}raw_outputs.jsonl"
-        parsed_log_path       = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
-        frame_scores_log_path = _raw_dir / f"{_prefix}frame_scores.jsonl"
+    _raw_dir        = context.results_dir / "raw"
+    _prefix         = f"{model_name}_"
+    raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
+    parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
+    pdr_log_path    = _raw_dir / f"{_prefix}frame_scores.jsonl"
 
-        # Pre-build and sort windows by entity count for even difficulty spread
-        all_cw = []
-        for clip in context.clips:
-            all_cw.extend(sample_complexity_windows(
-                clip, N, strategy, max_res, frames_per_count, max_entities,
-            ))
-        all_cw.sort(key=lambda cw: cw.n_entities_gt)
-        if total_frames is not None and len(all_cw) > total_frames:
-            _step = len(all_cw) / total_frames
-            all_cw = [all_cw[round(i * _step)] for i in range(total_frames)]
+    # Pre-build and sort windows by entity count for even difficulty spread
+    all_cw = []
+    for clip in context.clips:
+        all_cw.extend(sample_complexity_windows(
+            clip, max_res, frames_per_count, max_entities,
+        ))
+    all_cw.sort(key=lambda cw: cw.n_entities_gt)
+    if total_frames is not None and len(all_cw) > total_frames:
+        _step = len(all_cw) / total_frames
+        all_cw = [all_cw[round(i * _step)] for i in range(total_frames)]
 
-        workers     = model.parallel_workers
-        raw_lock    = threading.Lock()
-        parsed_lock = threading.Lock()
-        frame_lock  = threading.Lock()
+    workers     = model.parallel_workers
+    raw_lock    = threading.Lock()
+    parsed_lock = threading.Lock()
+    pdr_lock    = threading.Lock()
 
-        _win_args = dict(
-            model=model, model_name=model_name, N=N,
-            benchmark_cfg=context.benchmark_cfg,
-            raw_log_path=raw_log_path, parsed_log_path=parsed_log_path,
-            frame_scores_log_path=frame_scores_log_path,
-            raw_lock=raw_lock, parsed_lock=parsed_lock, frame_lock=frame_lock,
-        )
+    _win_args = dict(
+        model=model, model_name=model_name, N=N,
+        benchmark_cfg=context.benchmark_cfg,
+        raw_log_path=raw_log_path, parsed_log_path=parsed_log_path,
+        pdr_log_path=pdr_log_path,
+        raw_lock=raw_lock, parsed_lock=parsed_lock, pdr_lock=pdr_lock,
+    )
 
-        task_id = progress.add_task(
-            f"[cyan]{model_name} (N={N})" + (f" [dim]· {workers}t[/dim]" if workers > 1 else ""),
-            total=len(all_cw),
-        )
+    task_id = progress.add_task(
+        f"[cyan]{model_name}" + (f" [dim]· {workers}t[/dim]" if workers > 1 else ""),
+        total=len(all_cw),
+    )
 
-        _pm = prompt_map or {}
+    _pm = prompt_map or {}
 
-        def _resolved_prompt(cw) -> str:
-            return _pm.get(cw.window.center_frame, context.prompt)
+    def _resolved_prompt(cw) -> str:
+        return _pm.get(cw.window.center_frame, context.prompt)
 
-        if workers > 1:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(
-                        _infer_complexity_window, cw=cw,
-                        prompt=_resolved_prompt(cw), **_win_args,
-                    ): cw
-                    for cw in all_cw
-                }
-                for future in as_completed(futures):
-                    cw = futures[future]
-                    try:
-                        frame_scores, lat, pt, ct = future.result()
-                        model_scores.extend(frame_scores)
-                        model_lat[key].append(lat)
-                        model_tok[key]["prompt"]     += pt
-                        model_tok[key]["completion"] += ct
-                    except (KeyError, AttributeError, ImportError):
-                        raise
-                    except Exception:
-                        console.print(f"[red]✗ Error on {cw.window.clip_id}/{cw.window.center_frame}[/red]")
-                        console.print(traceback.format_exc(limit=2), style="dim red")
-                    progress.update(task_id, advance=1)
-        else:
-            for cw in all_cw:
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _infer_complexity_window, cw=cw,
+                    prompt=_resolved_prompt(cw), **_win_args,
+                ): cw
+                for cw in all_cw
+            }
+            for future in as_completed(futures):
+                cw = futures[future]
                 try:
-                    dbg_frame(model_name, cw.window.clip_id, cw.window.center_frame, N)
-                    frame_scores, lat, pt, ct = _infer_complexity_window(
-                        cw=cw, prompt=_resolved_prompt(cw), **_win_args,
-                    )
-                    model_scores.extend(frame_scores)
+                    lat, pt, ct = future.result()
                     model_lat[key].append(lat)
                     model_tok[key]["prompt"]     += pt
                     model_tok[key]["completion"] += ct
@@ -260,19 +250,32 @@ def _run_single_complexity_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {cw.window.clip_id}/{cw.window.center_frame}[/red]")
-                    console.print(traceback.format_exc(limit=2), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red")
                 progress.update(task_id, advance=1)
+    else:
+        for cw in all_cw:
+            try:
+                dbg_frame(model_name, cw.window.clip_id, cw.window.center_frame, N)
+                lat, pt, ct = _infer_complexity_window(
+                    cw=cw, prompt=_resolved_prompt(cw), **_win_args,
+                )
+                model_lat[key].append(lat)
+                model_tok[key]["prompt"]     += pt
+                model_tok[key]["completion"] += ct
+            except (KeyError, AttributeError, ImportError):
+                raise
+            except Exception:
+                console.print(f"[red]✗ Error on {cw.window.clip_id}/{cw.window.center_frame}[/red]")
+                console.print(traceback.format_exc(), style="dim red")
+            progress.update(task_id, advance=1)
 
-    return model_scores, model_lat, model_tok
+    return model_lat, model_tok
 
 
 def _run_inference(context: PipelineContext) -> InferenceResults:
-    all_scores:   list = []
     latencies:    dict[tuple[str, int], list[float]]    = {}
     token_counts: dict[tuple[str, int], dict[str, int]] = {}
 
-    window_sizes     = context.sampling_cfg["window_sizes"]
-    strategy         = context.sampling_cfg.get("frame_selection", "uniform")
     max_res          = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
     frames_per_count = context.sampling_cfg.get("frames_per_count", 3)
     max_entities     = context.sampling_cfg.get("max_entities")
@@ -288,7 +291,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
         _all_cw_for_detection = []
         for clip in context.clips:
             _all_cw_for_detection.extend(sample_complexity_windows(
-                clip, window_sizes[0], strategy, max_res, frames_per_count, max_entities,
+                clip, max_res, frames_per_count, max_entities,
             ))
         if total_frames is not None and len(_all_cw_for_detection) > total_frames:
             _step = len(_all_cw_for_detection) / total_frames
@@ -298,8 +301,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
         prompt_map = _precompute_prompts(context, _all_cw_for_detection)
         console.print(f"[green]✓ Detection done — {sum(1 for v in prompt_map.values() if '{detection_context}' not in v)}/{n_unique} frames with detections[/green]")
 
-    def _collect(scores, lats, toks):
-        all_scores.extend(scores)
+    def _collect(lats, toks):
         for k, v in lats.items():
             latencies.setdefault(k, []).extend(v)
         for k, v in toks.items():
@@ -308,7 +310,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
             tc["completion"] += v["completion"]
 
     _model_kwargs = dict(
-        context=context, window_sizes=window_sizes, strategy=strategy, max_res=max_res,
+        context=context, max_res=max_res,
         frames_per_count=frames_per_count, max_entities=max_entities, total_frames=total_frames,
         prompt_map=prompt_map,
     )
@@ -346,8 +348,8 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
                     for future in as_completed(futures):
                         name = futures[future]
                         try:
-                            scores, lats, toks = future.result()
-                            _collect(scores, lats, toks)
+                            lats, toks = future.result()
+                            _collect(lats, toks)
                         except (KeyError, AttributeError, ImportError):
                             raise
                         except Exception:
@@ -370,17 +372,94 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
                     console.print(traceback.format_exc(limit=3), style="dim red")
                     continue
             try:
-                scores, lats, toks = _run_single_complexity_model(
+                lats, toks = _run_single_complexity_model(
                     model_name, model, progress=progress, **_model_kwargs,
                 )
-                _collect(scores, lats, toks)
+                _collect(lats, toks)
             finally:
                 try:
                     model.unload()
                 except Exception:
                     pass
 
-    return InferenceResults(all_scores, [], latencies, token_counts)
+    return InferenceResults([], [], latencies, token_counts)
+
+
+def _save_pdr_scores(context: PipelineContext, results: InferenceResults) -> None:
+    """Aggregate PDR per (model, N) from frame_scores.jsonl and write scores.json."""
+    import math
+    from collections import defaultdict
+
+    raw_dir = context.results_dir / "raw"
+
+    # Read all PDR records written during inference
+    records: list[dict] = []
+    for path in sorted(raw_dir.glob("*_frame_scores.jsonl")):
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+
+    # Aggregate per (model_name, window_size)
+    buckets: dict[tuple, dict] = defaultdict(lambda: {
+        "pdr_ped": [], "pdr_veh": [], "parse_ok": [], "n": 0,
+    })
+    for rec in records:
+        key = (rec["model_name"], rec["window_size"])
+        b = buckets[key]
+        n_pg = rec.get("n_persons_gt", 0)
+        n_vg = rec.get("n_vehicles_gt", 0)
+        n_pp = rec.get("n_persons_pred")
+        n_vp = rec.get("n_vehicles_pred")
+        if n_pg and n_pp is not None:
+            b["pdr_ped"].append(min(n_pp / n_pg, 1.0))
+        if n_vg and n_vp is not None:
+            b["pdr_veh"].append(min(n_vp / n_vg, 1.0))
+        b["parse_ok"].append(1 if rec.get("parse_success") else 0)
+        b["n"] += 1
+
+    def _mean(xs): return sum(xs) / len(xs) if xs else None
+    def _std(xs):
+        if len(xs) < 2: return None
+        m = _mean(xs)
+        return math.sqrt(sum((x - m) ** 2 for x in xs) / len(xs))
+
+    result_rows = []
+    for (model_name, window_size), b in sorted(buckets.items()):
+        lat_key = (model_name, window_size)
+        lats = results.latencies.get(lat_key, [])
+        toks = results.token_counts.get(lat_key, {})
+        result_rows.append({
+            "model_name":        model_name,
+            "window_size":       window_size,
+            "n_frames":          b["n"],
+            "parse_success_rate": _mean(b["parse_ok"]),
+            "mean_pdr_ped":      _mean(b["pdr_ped"]),
+            "std_pdr_ped":       _std(b["pdr_ped"]),
+            "mean_pdr_veh":      _mean(b["pdr_veh"]),
+            "std_pdr_veh":       _std(b["pdr_veh"]),
+            "avg_latency_s":     _mean(lats) or 0.0,
+            "total_prompt_tokens":     toks.get("prompt", 0),
+            "total_completion_tokens": toks.get("completion", 0),
+        })
+
+    payload = {
+        "meta": {
+            "tracking": context.tracking_enabled,
+            "mode":     context.mode,
+            "run_id":   context.run_id,
+        },
+        "results": result_rows,
+    }
+    scores_path = context.results_dir / "raw" / "scores.json"
+    with open(scores_path, "w") as f:
+        json.dump(payload, f, indent=2, default=str)
+
+    console.print(Panel(
+        f"Results saved in: [bold white]{context.results_dir}[/bold white]",
+        border_style="green",
+    ))
 
 
 def run_complexity(
@@ -402,9 +481,8 @@ def run_complexity(
             if tracking and not context.fallback_prompt:
                 context.fallback_prompt = context.prompt
                 context.prompt = _DETECTION_PROMPT_FILE.read_text().strip()
-        results   = _run_inference(context)
-        summaries = run_scoring(results)
-        save_scores(summaries, context)
+        results = _run_inference(context)
+        _save_pdr_scores(context, results)
         return context.results_dir
     except Exception:
         console.print("[bold red]Critical pipeline failure[/bold red]")

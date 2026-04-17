@@ -89,7 +89,13 @@ class Molmo(BaseVLM):
             return_tensors="pt",
             return_dict=True,
         )
-        inputs = {k: v.to(self._model.device) for k, v in inputs.items()}
+        inputs = {
+            k: v.to(self._model.device) if isinstance(v, torch.Tensor) else v
+            for k, v in inputs.items()
+            if v is not None
+        }
+
+        n_input_tokens = inputs["input_ids"].shape[-1]
 
         t0 = time.perf_counter()
         with torch.inference_mode():
@@ -100,9 +106,9 @@ class Molmo(BaseVLM):
             )
         latency = time.perf_counter() - t0
 
-        generated_ids = output[0, inputs["input_ids"].shape[-1]:]
+        generated_ids = output[:, n_input_tokens:]
         raw_text = self._processor.batch_decode(
-            [generated_ids], skip_special_tokens=True
+            generated_ids, skip_special_tokens=True
         )[0]
 
         return VLMOutput(

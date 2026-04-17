@@ -10,7 +10,6 @@ import warnings
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -26,7 +25,6 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="statsmodels")
 
 st.set_page_config(
     page_title="Semora",
-    page_icon="🚗",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -195,7 +193,7 @@ def _style_f1_cols(df: pd.DataFrame, cols: list[str]) -> pd.io.formats.style.Sty
         styles = [""] * len(row)
         for col in cols:
             if col in df.columns:
-                styles[df.columns.get_loc(col)] = _color_f1(row.get(col))
+                styles[df.columns.get_loc(col)] = _color_f1(row.get(col))  # type: ignore[index]
         return styles
     return df.style.apply(_row, axis=1)
 
@@ -566,77 +564,45 @@ def view_temporal_consistency(run_dir: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data
-def _load_complexity_data(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    frame_records = load_jsonl(run_dir, "*_frame_scores.jsonl")
-    judge_records = load_jsonl(run_dir, "*_judge_outputs.jsonl")
-
-    frame_rows = []
-    for rec in frame_records:
-        n_ent = rec.get("n_entities_gt") or (
-            rec.get("n_persons_gt", 0) + rec.get("n_vehicles_gt", 0)
-        )
-        ped_f1s = [s["f1"] for s in rec.get("person_scores", {}).values()] if rec.get("parse_success") else []
-        veh_f1s = [s["f1"] for s in rec.get("vehicle_scores", {}).values()] if rec.get("parse_success") else []
-        n_pp, n_pg = rec.get("n_persons_pred"), rec.get("n_persons_gt", 0)
-        n_vp, n_vg = rec.get("n_vehicles_pred"), rec.get("n_vehicles_gt", 0)
-        frame_rows.append({
+def _load_complexity_data(run_dir: Path) -> pd.DataFrame:
+    records = load_jsonl(run_dir, "*_frame_scores.jsonl")
+    rows = []
+    for rec in records:
+        n_pg = rec.get("n_persons_gt", 0)
+        n_vg = rec.get("n_vehicles_gt", 0)
+        n_pp = rec.get("n_persons_pred")
+        n_vp = rec.get("n_vehicles_pred")
+        rows.append({
             "model":         rec["model_name"],
             "window_size":   rec["window_size"],
-            "n_entities_gt": n_ent,
+            "n_entities_gt": rec.get("n_entities_gt") or (n_pg + n_vg),
             "n_persons_gt":  n_pg,
             "n_vehicles_gt": n_vg,
-            "f1_ped":  sum(ped_f1s) / len(ped_f1s) if ped_f1s else None,
-            "f1_veh":  sum(veh_f1s) / len(veh_f1s) if veh_f1s else None,
             "det_ped": min(n_pp / n_pg, 1.0) if n_pg and n_pp is not None else None,
             "det_veh": min(n_vp / n_vg, 1.0) if n_vg and n_vp is not None else None,
         })
-
-    judge_rows = []
-    for rec in judge_records:
-        n_ent = rec.get("n_entities_gt") or (
-            rec.get("n_persons_gt", 0) + rec.get("n_vehicles_gt", 0)
-        )
-        scores = rec.get("scores", {})
-        judge_rows.append({
-            "model":         rec["model"],
-            "window_size":   rec["N"],
-            "n_entities_gt": n_ent,
-            "completeness":  scores.get("completeness"),
-            "overall":       scores.get("overall"),
-        })
-
-    return (
-        pd.DataFrame(frame_rows) if frame_rows else pd.DataFrame(),
-        pd.DataFrame(judge_rows) if judge_rows else pd.DataFrame(),
-    )
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-def view_complexity_table(frame_df: pd.DataFrame, judge_df: pd.DataFrame) -> None:
-    st.subheader("Complexity Degradation by Entity Count")
+def view_pdr_table(frame_df: pd.DataFrame) -> None:
+    st.subheader("PDR par densité de scène")
     if frame_df.empty:
         st.info("No frame_scores data.")
         return
     rows = []
     for (model, ws, n_ent), grp in frame_df.groupby(["model", "window_size", "n_entities_gt"]):
-        f1_ped = grp["f1_ped"].dropna().mean()
-        f1_veh = grp["f1_veh"].dropna().mean()
-        row = {"Model": model, "N": ws, "Entities (GT)": n_ent, "Frames": len(grp),
-               "F1 Ped": round(f1_ped, 3) if not pd.isna(f1_ped) else None,
-               "F1 Veh": round(f1_veh, 3) if not pd.isna(f1_veh) else None}
-        if not judge_df.empty:
-            jg = judge_df[
-                (judge_df["model"] == model) &
-                (judge_df["window_size"] == ws) &
-                (judge_df["n_entities_gt"] == n_ent)
-            ]
-            row["Completeness ★"] = round(jg["completeness"].dropna().mean(), 3) if not jg.empty else None
-            row["Judge Overall"]  = round(jg["overall"].dropna().mean(), 3) if not jg.empty else None
-        rows.append(row)
+        det_ped = grp["det_ped"].dropna().mean()
+        det_veh = grp["det_veh"].dropna().mean()
+        rows.append({
+            "Model": model, "N": ws, "Entities (GT)": n_ent, "Frames": len(grp),
+            "PDR piétons": round(det_ped, 3) if not pd.isna(det_ped) else None,
+            "PDR véhicules": round(det_veh, 3) if not pd.isna(det_veh) else None,
+        })
     df = pd.DataFrame(rows).sort_values(["Model", "N", "Entities (GT)"])
-    score_cols = [c for c in ["Completeness ★", "Judge Overall", "F1 Ped", "F1 Veh"] if c in df.columns]
+    pdr_cols = ["PDR piétons", "PDR véhicules"]
     st.dataframe(
-        _style_f1_cols(df, score_cols).format(
-            {c: "{:.3f}" for c in score_cols}, na_rep="—"
+        _style_f1_cols(df, pdr_cols).format(
+            {c: "{:.3f}" for c in pdr_cols}, na_rep="—"
         ),
         width="stretch",
         height=min(600, 80 + len(df) * 38),
@@ -670,27 +636,6 @@ def view_detection_rate(frame_df: pd.DataFrame) -> None:
     with c2:
         _scatter_complexity(frame_df, "n_vehicles_gt", "det_veh",
                             "Vehicle detection rate", "Detection rate")
-
-
-def view_f1_vs_entities(frame_df: pd.DataFrame) -> None:
-    if frame_df.empty:
-        return
-    st.subheader("Attribute F1 vs Entity Count")
-    c1, c2 = st.columns(2)
-    with c1:
-        _scatter_complexity(frame_df, "n_persons_gt", "f1_ped",
-                            "Pedestrian attribute F1", "F1 Score")
-    with c2:
-        _scatter_complexity(frame_df, "n_vehicles_gt", "f1_veh",
-                            "Vehicle attribute F1", "F1 Score")
-
-
-def view_completeness_vs_entities(judge_df: pd.DataFrame) -> None:
-    if judge_df.empty or "completeness" not in judge_df.columns:
-        return
-    st.subheader("Completeness (LLM Judge) vs Entity Count")
-    _scatter_complexity(judge_df, "n_entities_gt", "completeness",
-                        "Completeness vs Scene Density", "Completeness")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -761,16 +706,16 @@ def view_compare_runs_tab(extraction_runs: list[Path]) -> None:
             idx = df.columns.get_loc(col)
             val = row.get(col)
             if val is None or val == 0:
-                styles[idx] = "color: #888"
+                styles[idx] = "color: #888"  # type: ignore[index]
             elif val > 0:
-                styles[idx] = "color: #6cf5a8"
+                styles[idx] = "color: #6cf5a8"  # type: ignore[index]
             else:
-                styles[idx] = "color: #f57c6c"
+                styles[idx] = "color: #f57c6c"  # type: ignore[index]
         return styles
 
     fmt = {c: "{:.4f}" for c in delta_cols + score_cols if c in df.columns}
     st.dataframe(
-        df.style.apply(_style_row, axis=1).format(fmt, na_rep="—"),
+        df.style.apply(_style_row, axis=1).format(fmt, na_rep="—"),  # type: ignore[arg-type]
         width="stretch",
         height=min(600, 80 + len(rows) * 38),
     )
@@ -832,7 +777,7 @@ def _render_general_comparison(sel_dirs: list[Path], mode: str) -> None:
             fmt["parse_success_rate"] = "{:.1%}"
         st.dataframe(
             _style_f1_cols(tbl, [c for c in f1_cols if c in tbl.columns]).format(
-                fmt, na_rep="—",
+                fmt, na_rep="—",  # type: ignore[arg-type]
             ),
             width="stretch",
         )
@@ -884,11 +829,44 @@ def _render_general_comparison(sel_dirs: list[Path], mode: str) -> None:
         st.plotly_chart(fig, width="stretch")
 
     elif mode == "complexity":
+        # ── PDR summary from scores.json ──────────────────────────────────────
+        pdr_rows = []
+        for rd in sel_dirs:
+            meta = load_run_meta(rd)
+            tracking = "✓" if meta.get("tracking") else "✗"
+            for s in load_scores(rd):
+                pdr_rows.append({
+                    "Run":              rd.name,
+                    "Tracking":         tracking,
+                    "Model":            s.get("model_name", ""),
+                    "N":                s.get("window_size"),
+                    "Frames":           s.get("n_frames"),
+                    "Parse %":          round(s["parse_success_rate"] * 100, 1) if s.get("parse_success_rate") is not None else None,
+                    "PDR ped (mean)":   s.get("mean_pdr_ped"),
+                    "PDR ped (std)":    s.get("std_pdr_ped"),
+                    "PDR veh (mean)":   s.get("mean_pdr_veh"),
+                    "PDR veh (std)":    s.get("std_pdr_veh"),
+                    "Latency (s)":      round(s["avg_latency_s"], 2) if s.get("avg_latency_s") is not None else None,
+                })
+        if pdr_rows:
+            st.subheader("PDR Scores — All Runs")
+            pdr_df = pd.DataFrame(pdr_rows)
+            pdr_score_cols = ["PDR ped (mean)", "PDR ped (std)", "PDR veh (mean)", "PDR veh (std)"]
+            st.dataframe(
+                _style_f1_cols(pdr_df, ["PDR ped (mean)", "PDR veh (mean)"]).format(
+                    {c: "{:.3f}" for c in pdr_score_cols if c in pdr_df.columns},
+                    na_rep="—",  # type: ignore[arg-type]
+                ),
+                width="stretch",
+                height=min(500, 80 + len(pdr_rows) * 38),
+            )
+
         all_frame_dfs = []
         for i, rd in enumerate(sel_dirs):
-            frame_df, _ = _load_complexity_data(rd)
+            frame_df = _load_complexity_data(rd)
             if not frame_df.empty:
                 frame_df = frame_df.copy()
+                frame_df["run_id"]    = rd.name          # run seul, sans modèle
                 frame_df["run_label"] = rd.name + " · " + frame_df["model"].astype(str)
                 frame_df["_color_idx"] = i
                 all_frame_dfs.append(frame_df)
@@ -899,47 +877,130 @@ def _render_general_comparison(sel_dirs: list[Path], mode: str) -> None:
 
         combined = pd.concat(all_frame_dfs, ignore_index=True)
 
-        def _scatter_multi(x: str, y: str, title: str, xlabel: str, ylabel: str) -> None:
-            d = combined[[x, y, "run_label", "_color_idx"]].dropna()
-            if d.empty:
-                st.info(f"No data for {title}.")
-                return
-            fig = go.Figure()
-            for (label, cidx), grp in d.groupby(["run_label", "_color_idx"]):
-                color = PALETTE[int(cidx) % len(PALETTE)]
-                fig.add_trace(go.Scatter(
-                    x=grp[x], y=grp[y], mode="markers",
-                    name=label,
-                    marker=dict(color=color, opacity=0.5, size=7),
-                ))
-            fig.update_layout(
-                **_plotly_cfg(),
-                title=title,
-                xaxis_title=xlabel,
-                yaxis_title=ylabel,
-                yaxis_range=[0, 1.05],
-                template="plotly_dark",
-                height=400,
-            )
-            st.plotly_chart(fig, width="stretch")
+        # ── Bucketing n_persons_gt ────────────────────────────────────────
+        _BUCKET_DEFS = [
+            ("1",     lambda n: n == 1),
+            ("2",     lambda n: n == 2),
+            ("3-4",   lambda n: 3 <= n <= 4),
+            ("5-6",   lambda n: 5 <= n <= 6),
+            ("7-10",  lambda n: 7 <= n <= 10),
+            ("11-15", lambda n: 11 <= n <= 15),
+            ("16-20", lambda n: 16 <= n <= 20),
+            ("21-30", lambda n: 21 <= n <= 30),
+            ("31-40", lambda n: 31 <= n <= 40),
+            ("41+",   lambda n: n >= 41),
+        ]
+        _BUCKET_NAMES = [b[0] for b in _BUCKET_DEFS]
+        _BUCKET_ORDER = {b: i for i, b in enumerate(_BUCKET_NAMES)}
 
-        st.subheader("F1 vs Entity Count")
-        c1, c2 = st.columns(2)
-        with c1:
-            _scatter_multi("n_persons_gt", "f1_ped",
-                           "Pedestrian F1 vs Person Count", "Persons (GT)", "F1")
-        with c2:
-            _scatter_multi("n_vehicles_gt", "f1_veh",
-                           "Vehicle F1 vs Vehicle Count", "Vehicles (GT)", "F1")
+        def _assign_bucket(n):
+            for name, fn in _BUCKET_DEFS:
+                if fn(int(n)): return name
+            return "41+"
 
-        st.subheader("Detection Rate vs Entity Count")
+        if "n_persons_gt" in combined.columns:
+            combined["bucket"] = combined["n_persons_gt"].dropna().apply(_assign_bucket)
+            combined["bucket_order"] = combined["bucket"].map(_BUCKET_ORDER)
+
+        # Colors per model (consistent across panels)
+        _MODEL_PALETTE = {
+            "gpt-4o-mini":   "#5b9cf6",
+            "gpt-5-mini":    "#4ecb8d",
+            "mistral-large": "#f5844c",
+            "mistral-medium":"#b57bee",
+        }
+        _LAYOUT_CLEAN = dict(
+            plot_bgcolor="#0f1117", paper_bgcolor="#0f1117",
+            font=dict(color="#c8ccd8"),
+            yaxis_gridcolor="#2a2d3d", yaxis_linecolor="#2a2d3d",
+            xaxis_linecolor="#2a2d3d",
+            legend=dict(bgcolor="#1a1d27", bordercolor="#2a2d3d", borderwidth=1),
+            margin=dict(t=40, b=40),
+        )
+
+        # ── 1. Lignes : 2 panneaux côte à côte, 4 courbes par panneau ──────
+        st.subheader("Pedestrian Detection Rate par densité de scène")
+        run_ids = list(combined["run_id"].unique())
         c1, c2 = st.columns(2)
-        with c1:
-            _scatter_multi("n_persons_gt", "det_ped",
-                           "Pedestrian Detection Rate", "Persons (GT)", "Detection rate")
-        with c2:
-            _scatter_multi("n_vehicles_gt", "det_veh",
-                           "Vehicle Detection Rate", "Vehicles (GT)", "Detection rate")
+        for col, run_id in zip([c1, c2], run_ids[:2]):
+            with col:
+                d: pd.DataFrame = combined[combined["run_id"] == run_id].dropna(
+                    subset=["bucket", "det_ped"])
+                if d.empty:
+                    st.info("No data.")
+                    continue
+                fig = go.Figure()
+                for model, grp in d.groupby("model"):
+                    bkt_stats = (
+                        grp.groupby(["bucket", "bucket_order"])["det_ped"]
+                        .mean().reset_index()
+                        .sort_values("bucket_order")
+                    )
+                    color = _MODEL_PALETTE.get(model, "#888888")
+                    fig.add_trace(go.Scatter(
+                        x=bkt_stats["bucket"], y=bkt_stats["det_ped"],
+                        mode="lines+markers", name=model,
+                        line=dict(color=color, width=2),
+                        marker=dict(color=color, size=6),
+                    ))
+                fig.update_layout(
+                    **_LAYOUT_CLEAN,
+                    title=run_id,
+                    xaxis_title="Nb piétons GT",
+                    yaxis_title="Pedestrian Detection Rate",
+                    yaxis_range=[0, 1.05],
+                    height=400,
+                    xaxis=dict(
+                        categoryorder="array",
+                        categoryarray=_BUCKET_NAMES,
+                        gridcolor="#2a2d3d", tickangle=30,
+                        color="#c8ccd8",
+                    ),
+                )
+                st.plotly_chart(fig, width="stretch")
+
+        # ── 2. Barres par modèle : PDR vs densité, une barre par run ──────
+        st.subheader("PDR par densité — détail par modèle")
+        models_present = [m for m in _MODEL_PALETTE if m in combined["model"].unique()]
+        cols2 = st.columns(2)
+        for i, model in enumerate(models_present):
+            with cols2[i % 2]:
+                d = combined[combined["model"] == model].dropna(
+                    subset=["bucket", "det_ped"])
+                if d.empty:
+                    continue
+                fig = go.Figure()
+                for cidx, (run_id, grp) in enumerate(d.groupby("run_id")):
+                    bkt_stats = (
+                        grp.groupby(["bucket", "bucket_order"])["det_ped"]
+                        .mean().reset_index()
+                        .sort_values("bucket_order")
+                    )
+                    color = PALETTE[cidx % len(PALETTE)]
+                    fig.add_trace(go.Bar(
+                        x=bkt_stats["bucket"], y=bkt_stats["det_ped"],
+                        name=run_id,
+                        marker_color=color, opacity=0.85,
+                        text=bkt_stats["det_ped"].map("{:.2f}".format),
+                        textposition="outside",
+                        textfont=dict(size=9, color="#c8ccd8"),
+                    ))
+                fig.update_layout(
+                    **_LAYOUT_CLEAN,
+                    title=model,
+                    xaxis_title="Nb piétons GT",
+                    yaxis_title="PDR",
+                    yaxis_range=[0, 1.2],
+                    barmode="group",
+                    height=360,
+                    xaxis=dict(
+                        categoryorder="array",
+                        categoryarray=_BUCKET_NAMES,
+                        gridcolor="#2a2d3d", tickangle=30,
+                        color="#c8ccd8",
+                    ),
+                )
+                st.plotly_chart(fig, width="stretch")
 
 
 def _render_tracking_delta(run_no_tr: Path, run_with_tr: Path) -> None:
@@ -984,17 +1045,17 @@ def _render_tracking_delta(run_no_tr: Path, run_with_tr: Path) -> None:
             idx = df.columns.get_loc(col)
             val = row.get(col)
             if val is None or val == 0:
-                styles[idx] = "color: #888"
+                styles[idx] = "color: #888"  # type: ignore[index]
             elif val > 0:
-                styles[idx] = "color: #6cf5a8"
+                styles[idx] = "color: #6cf5a8"  # type: ignore[index]
             else:
-                styles[idx] = "color: #f57c6c"
+                styles[idx] = "color: #f57c6c"  # type: ignore[index]
         return styles
 
     fmt = {c: "{:.4f}" for c in delta_cols + score_cols if c in df.columns}
     st.subheader("Table de delta (B − A)")
     st.dataframe(
-        df.style.apply(_style_delta, axis=1).format(fmt, na_rep="—"),
+        df.style.apply(_style_delta, axis=1).format(fmt, na_rep="—"),  # type: ignore[arg-type]
         width="stretch",
         height=min(600, 80 + len(rows) * 38),
     )
@@ -1035,19 +1096,7 @@ def page_compare(all_runs: dict[str, list[Path]]) -> None:
 
     # ── Onglet 1 : Comparaison générale ──────────────────────────────────────
     with tab_general:
-        tracking_filter = st.radio(
-            "Filtrer les runs par tracking",
-            ["Tous", "Avec tracking", "Sans tracking"],
-            horizontal=True,
-            key="cmp_tracking_filter",
-        )
-        with_tr, without_tr = _partition_by_tracking(runs)
-        if tracking_filter == "Avec tracking":
-            filtered_runs = with_tr
-        elif tracking_filter == "Sans tracking":
-            filtered_runs = without_tr
-        else:
-            filtered_runs = runs
+        filtered_runs = runs
 
         if not filtered_runs:
             st.info("Aucun run disponible pour ce filtre.")
@@ -1102,7 +1151,7 @@ def main() -> None:
     all_runs = list_runs()
 
     with st.sidebar:
-        st.markdown("## 🚗 Semora")
+        st.markdown("## Semora")
         st.divider()
 
         page = st.radio("Navigation", ["Analysis", "Compare Runs"],
@@ -1119,7 +1168,7 @@ def main() -> None:
         return
 
     # ── Analysis page ─────────────────────────────────────────────────────────
-    st.title("🚗 Semora — Benchmark Analysis")
+    st.title(" Semora — Benchmark Analysis")
 
     with st.sidebar:
         mode = st.selectbox("Mode", list(all_runs.keys()))
@@ -1161,11 +1210,12 @@ def main() -> None:
         with tabs[5]: view_compare_runs_tab(all_runs.get("extraction", []))
 
     elif mode == "complexity":
-        frame_df, judge_df = _load_complexity_data(run_dir)
+        frame_df = _load_complexity_data(run_dir)
         if frame_df.empty:
             st.error("No frame_scores.jsonl found in this run.")
             return
 
+        summaries = load_scores(run_dir)
         models = sorted(frame_df["model"].unique())
         with st.sidebar:
             st.divider()
@@ -1173,13 +1223,24 @@ def main() -> None:
             sel_models = st.multiselect("Models", models, default=models)
 
         frame_df = frame_df[frame_df["model"].isin(sel_models)]
-        if not judge_df.empty:
-            judge_df = judge_df[judge_df["model"].isin(sel_models)]
+        summaries = [s for s in summaries if s.get("model_name") in sel_models]
 
-        tabs = st.tabs(["Complexity Table", "Detection Rate", "F1 vs Entities"])
-        with tabs[0]: view_complexity_table(frame_df, judge_df)
-        with tabs[1]: view_detection_rate(frame_df)
-        with tabs[2]: view_f1_vs_entities(frame_df)
+        # PDR metric cards
+        if summaries:
+            for s in summaries:
+                st.markdown(f"**{s['model_name']}** · N={s['window_size']}")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Frames",        s.get("n_frames", "—"))
+                c2.metric("PDR ped",       f"{s['mean_pdr_ped']:.3f} ± {s['std_pdr_ped']:.3f}" if s.get("mean_pdr_ped") is not None else "—")
+                c3.metric("PDR veh",       f"{s['mean_pdr_veh']:.3f} ± {s['std_pdr_veh']:.3f}" if s.get("mean_pdr_veh") is not None else "—")
+                c4.metric("Latency (s)",   f"{s['avg_latency_s']:.2f}" if s.get("avg_latency_s") is not None else "—")
+            st.divider()
+
+        tabs = st.tabs(["PDR Table", "Detection Rate"])
+        with tabs[0]:
+            view_pdr_table(frame_df)
+        with tabs[1]:
+            view_detection_rate(frame_df)
 
     else:
         st.info(f"No view implemented for mode '{mode}'.")

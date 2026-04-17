@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass
 
 from .clip_loader import TITANClip
-from .frame_sampler import FrameWindow, _select_indices
+from .frame_sampler import FrameWindow
 
 
 @dataclass
@@ -19,8 +19,6 @@ class ComplexityWindow:
 
 def sample_complexity_windows(
     clip: TITANClip,
-    window_size: int,
-    strategy: str = "uniform",
     max_resolution: tuple[int, int] | None = (1280, 720),
     frames_per_count: int = 3,
     max_entities: int | None = None,
@@ -33,8 +31,6 @@ def sample_complexity_windows(
 
     Args:
         clip:             loaded TITANClip
-        window_size:      N frames per window
-        strategy:         window frame selection strategy (uniform | last | center)
         max_resolution:   resize cap applied when loading images
         frames_per_count: max frames sampled per distinct entity count value
         max_entities:     optional upper cap on entity count (None = no limit)
@@ -42,14 +38,11 @@ def sample_complexity_windows(
     Returns:
         List of ComplexityWindow sorted by n_entities_gt ascending (easy → hard).
     """
-    frame_names = clip.frame_names
-    total = len(frame_names)
-
     # Group annotated frames by exact entity count
     count_frames: dict[int, list[str]] = {}
     frame_meta: dict[str, tuple[int, int]] = {}  # frame_name → (n_persons, n_vehicles)
 
-    for frame_name in frame_names:
+    for frame_name in clip.frame_names:
         ann = clip.annotations.get(frame_name)
         if ann is None:
             continue
@@ -74,23 +67,17 @@ def sample_complexity_windows(
         for fn in chosen:
             selected.append((fn, n_entities))
 
-    # Build ComplexityWindow objects, sorted easy → hard
     selected.sort(key=lambda x: x[1])
 
     result: list[ComplexityWindow] = []
     for center_name, n_entities in selected:
-        center_idx = frame_names.index(center_name)
-        indices    = _select_indices(center_idx, total, window_size, strategy)
-        sel_names  = [frame_names[i] for i in indices]
-
         fw = FrameWindow(
             clip_id=clip.clip_id,
             center_frame=center_name,
-            frame_names=sel_names,
-            frames=clip.get_frames(sel_names, max_resolution),
+            frame_names=[center_name],
+            frames=clip.get_frames([center_name], max_resolution),
             annotation=clip.annotations[center_name],
-            annotations=[clip.annotations.get(fn) for fn in sel_names],
-            window_size=window_size,
+            annotations=[clip.annotations[center_name]],
         )
         n_persons, n_vehicles = frame_meta[center_name]
         result.append(ComplexityWindow(

@@ -108,16 +108,6 @@ def load_pipeline(
         fallback_prompt = ""
         live_tracker = None
 
-    # Warn if max_new_tokens is too low for multi-frame output
-    max_ws = max(sampling_cfg["window_sizes"], default=1)
-    if max_ws > 1:
-        for m_name, m_cfg in models_cfg.items():
-            if m_cfg.get("enabled") and m_cfg.get("max_new_tokens", 512) < 1000:
-                console.print(
-                    f"[yellow]⚠  {m_name}: max_new_tokens={m_cfg.get('max_new_tokens', 512)} "
-                    f"but window_size goes up to {max_ws}. "
-                    f"Consider setting max_new_tokens ≥ 1000.[/yellow]"
-                )
 
     run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / mode / run_id
@@ -136,8 +126,7 @@ def load_pipeline(
     header = Panel(
         f"[bold blue]Run ID:[/bold blue] {run_id}\n"
         f"[bold blue]Clips:[/bold blue] {len(clips)} | "
-        f"[bold blue]Models ({len(models)}):[/bold blue] {model_names}\n"
-        f"[bold blue]Windows:[/bold blue] {sampling_cfg['window_sizes']}",
+        f"[bold blue]Models ({len(models)}):[/bold blue] {model_names}",
         title=f"[bold white]Semora Benchmark[/bold white]  [dim]·  {mode_label}[/dim]",
         border_style="bright_magenta",
         box=box.ROUNDED
@@ -151,16 +140,39 @@ def load_pipeline(
         fallback_prompt=fallback_prompt, live_tracker=live_tracker,
     )
 
+def _build_clip_detection_cache(
+    tracker,
+    clip: "TITANClip",
+    max_res: tuple | None,
+) -> dict[str, list[dict]]:
+    """Scan every frame of a clip in chronological order with ByteTrack.
+
+    ByteTrack sees every frame — same temporal context as offline preprocessing —
+    while adding negligible wall-clock time (YOLO ~50 ms/frame vs VLM ~2-5 s/frame).
+    Returns a dict {frame_name: [detections]} for all frames in the clip.
+    """
+    cache: dict[str, list[dict]] = {}
+    for frame_name in clip.frame_names:
+        img = clip.get_frame(frame_name, max_resolution=max_res)
+        cache[frame_name] = tracker.process_frames([img])[0]
+    return cache
+
+
 def _resolve_window_prompt(
     context: PipelineContext,
     clip_id: str,
     frame_names: list[str],
     frames: list | None = None,
+    det_cache: dict[str, list[dict]] | None = None,
 ) -> str:
     """Return the prompt for this window, injecting YOLO context when enabled.
 
     - complexity mode (N=1): plain detection → {detection_context}
     - extraction mode (N>1): ByteTrack → {tracking_context}
+
+    When det_cache is provided (built by _build_clip_detection_cache), detections
+    come from the full-clip scan and ByteTrack quality matches offline preprocessing.
+    Without a cache, only the window frames are seen — tracks may break at gaps.
     """
     if not context.tracking_enabled or context.live_tracker is None:
         return context.prompt
@@ -179,8 +191,13 @@ def _resolve_window_prompt(
         return context.prompt.replace("{detection_context}", detection_ctx)
     else:
         # Multi-frame tracking
-        detections = context.live_tracker.process_frames(actual_frames)
-        tracking_ctx = build_tracking_context_from_detections(detections)
+        if det_cache is not None:
+            # Full-clip scan: every frame was fed to ByteTrack in order → stable IDs
+            frame_detections = [det_cache.get(fn, []) for fn in frame_names]
+        else:
+            # Fallback: only window frames are visible to ByteTrack (degraded quality)
+            frame_detections = context.live_tracker.process_frames(actual_frames)
+        tracking_ctx = build_tracking_context_from_detections(frame_detections)
         if not tracking_ctx:
             return context.fallback_prompt
         return context.prompt.replace("{tracking_context}", tracking_ctx)
@@ -228,92 +245,118 @@ def _infer_window(
 
 def _run_single_model(
     model_name: str, model, context: PipelineContext,
-    window_sizes: list[int], strategy: str, max_res, step: int,
+    max_res, step: int,
     progress: Progress,
 ) -> tuple[list, list, dict, dict]:
-    """Run all (N, clip, window) iterations for one model against a shared progress bar."""
+    """Run all (clip, frame) iterations for one model against a shared progress bar."""
     model_scores: list = []
     model_judge: list  = []
     model_lat:   dict  = {}
     model_tok:   dict  = {}
 
-    for N in window_sizes:
-        key = (model_name, N)
-        model_lat[key] = []
-        model_tok[key] = {"prompt": 0, "completion": 0}
+    N = 1
+    key = (model_name, N)
+    model_lat[key] = []
+    model_tok[key] = {"prompt": 0, "completion": 0}
 
-        _raw_dir        = context.results_dir / "raw"
-        _prefix         = f"{model_name}_N{N}_"
-        raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
-        parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
-        judge_log_path  = _raw_dir / f"{_prefix}judge_outputs.jsonl"
-        total_windows   = sum(len(sample_windows(c, N, strategy, max_res, step)) for c in context.clips)
+    _raw_dir        = context.results_dir / "raw"
+    _prefix         = f"{model_name}_"
+    raw_log_path    = _raw_dir / f"{_prefix}raw_outputs.jsonl"
+    parsed_log_path = _raw_dir / f"{_prefix}parsed_outputs.jsonl"
+    judge_log_path  = _raw_dir / f"{_prefix}judge_outputs.jsonl"
+    total_windows   = sum(len(sample_windows(c, max_res, step)) for c in context.clips)
 
-        workers = model.parallel_workers
-        raw_lock, parsed_lock, judge_lock = threading.Lock(), threading.Lock(), threading.Lock()
-        _win_args = dict(
-            model=model, model_name=model_name, N=N,
-            prompt=context.prompt, benchmark_cfg=context.benchmark_cfg,
-            raw_log_path=raw_log_path, parsed_log_path=parsed_log_path, judge_log_path=judge_log_path,
-            raw_lock=raw_lock, parsed_lock=parsed_lock, judge_lock=judge_lock,
-        )
+    workers = model.parallel_workers
+    raw_lock, parsed_lock, judge_lock = threading.Lock(), threading.Lock(), threading.Lock()
+    _win_args = dict(
+        model=model, model_name=model_name, N=N,
+        prompt=context.prompt, benchmark_cfg=context.benchmark_cfg,
+        raw_log_path=raw_log_path, parsed_log_path=parsed_log_path, judge_log_path=judge_log_path,
+        raw_lock=raw_lock, parsed_lock=parsed_lock, judge_lock=judge_lock,
+    )
 
-        task_id = progress.add_task(
-            f"[cyan]{model_name} (N={N})" + (f" [dim]· {workers}t[/dim]" if workers > 1 else ""),
-            total=total_windows,
-        )
+    task_id = progress.add_task(
+        f"[cyan]{model_name}" + (f" [dim]· {workers}t[/dim]" if workers > 1 else ""),
+        total=total_windows,
+    )
 
-        if workers > 1:
-            all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, N, strategy, max_res, step)]
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {
-                    executor.submit(
-                        _infer_window, clip=clip, window=window,
-                        **{**_win_args, "prompt": _resolve_window_prompt(context, clip.clip_id, window.frame_names, window.frames)},
-                    ): (clip, window)
-                    for clip, window in all_windows
-                }
-                for future in as_completed(futures):
-                    clip, window = futures[future]
-                    try:
-                        frame_scores, js, lat, pt, ct = future.result()
-                        model_scores.extend(frame_scores)
-                        if js:
-                            model_judge.append(js)
-                        model_lat[key].append(lat)
-                        model_tok[key]["prompt"] += pt
-                        model_tok[key]["completion"] += ct
-                    except (KeyError, AttributeError, ImportError):
-                        raise
-                    except Exception:
-                        console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                        console.print(traceback.format_exc(limit=2), style="dim red")
-                    progress.update(task_id, advance=1)
-        else:
+    if workers > 1:
+        clip_caches: dict[str, dict[str, list[dict]]] = {}
+        if context.live_tracker is not None and context.mode != "complexity":
             for clip in context.clips:
-                if context.live_tracker is not None:
-                    context.live_tracker.reset()
-                for window in sample_windows(clip, N, strategy, max_res, step):
-                    try:
-                        dbg_frame(model_name, clip.clip_id, window.center_frame, N)
-                        window_prompt = _resolve_window_prompt(context, clip.clip_id, window.frame_names, window.frames)
-                        frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **{**_win_args, "prompt": window_prompt})
-                        model_scores.extend(frame_scores)
-                        if js:
-                            model_judge.append(js)
-                            if js.judge_error and js.judge_error != "parse_failed":
-                                dbg_judge_error(js.judge_error)
-                            else:
-                                dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
-                        model_lat[key].append(lat)
-                        model_tok[key]["prompt"] += pt
-                        model_tok[key]["completion"] += ct
-                    except (KeyError, AttributeError, ImportError):
-                        raise
-                    except Exception:
-                        console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                        console.print(traceback.format_exc(limit=2), style="dim red")
-                    progress.update(task_id, advance=1)
+                context.live_tracker.reset()
+                console.print(
+                    f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                    f"for tracking context...[/cyan]"
+                )
+                clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                    context.live_tracker, clip, max_res
+                )
+        all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, max_res, step)]
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _infer_window, clip=clip, window=window,
+                    **{**_win_args, "prompt": _resolve_window_prompt(
+                        context, clip.clip_id, window.frame_names, window.frames,
+                        det_cache=clip_caches.get(clip.clip_id),
+                    )},
+                ): (clip, window)
+                for clip, window in all_windows
+            }
+            for future in as_completed(futures):
+                clip, window = futures[future]
+                try:
+                    frame_scores, js, lat, pt, ct = future.result()
+                    model_scores.extend(frame_scores)
+                    if js:
+                        model_judge.append(js)
+                    model_lat[key].append(lat)
+                    model_tok[key]["prompt"] += pt
+                    model_tok[key]["completion"] += ct
+                except (KeyError, AttributeError, ImportError):
+                    raise
+                except Exception:
+                    console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
+                    console.print(traceback.format_exc(limit=2), style="dim red")
+                progress.update(task_id, advance=1)
+    else:
+        for clip in context.clips:
+            det_cache: dict[str, list[dict]] | None = None
+            if context.live_tracker is not None:
+                context.live_tracker.reset()
+                if context.mode != "complexity":
+                    console.print(
+                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                        f"for tracking context...[/cyan]"
+                    )
+                    det_cache = _build_clip_detection_cache(
+                        context.live_tracker, clip, max_res
+                    )
+            for window in sample_windows(clip, max_res, step):
+                try:
+                    dbg_frame(model_name, clip.clip_id, window.center_frame, N)
+                    window_prompt = _resolve_window_prompt(
+                        context, clip.clip_id, window.frame_names, window.frames,
+                        det_cache=det_cache,
+                    )
+                    frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **{**_win_args, "prompt": window_prompt})
+                    model_scores.extend(frame_scores)
+                    if js:
+                        model_judge.append(js)
+                        if js.judge_error and js.judge_error != "parse_failed":
+                            dbg_judge_error(js.judge_error)
+                        else:
+                            dbg_judge(js.completeness, js.semantic_richness, js.spatial_relations, js.overall)
+                    model_lat[key].append(lat)
+                    model_tok[key]["prompt"] += pt
+                    model_tok[key]["completion"] += ct
+                except (KeyError, AttributeError, ImportError):
+                    raise
+                except Exception:
+                    console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
+                    console.print(traceback.format_exc(limit=2), style="dim red")
+                progress.update(task_id, advance=1)
 
     return model_scores, model_judge, model_lat, model_tok
 
@@ -325,10 +368,8 @@ def run_inference(context: PipelineContext) -> InferenceResults:
     latencies:    dict[tuple[str, int], list[float]]       = {}
     token_counts: dict[tuple[str, int], dict[str, int]]    = {}
 
-    window_sizes = context.sampling_cfg["window_sizes"]
-    strategy     = context.sampling_cfg.get("frame_selection", "uniform")
-    max_res      = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
-    step         = context.sampling_cfg.get("step", 1)
+    max_res = tuple(context.sampling_cfg["max_resolution"]) if context.sampling_cfg.get("max_resolution") else None
+    step    = context.sampling_cfg.get("step", 1)
 
     api_models   = {n: m for n, m in context.models.items() if m.parallel_workers > 1}
     local_models = {n: m for n, m in context.models.items() if m.parallel_workers <= 1}
@@ -370,7 +411,7 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                     futures = {
                         executor.submit(
                             _run_single_model,
-                            name, model, context, window_sizes, strategy, max_res, step, progress,
+                            name, model, context, max_res, step, progress,
                         ): name
                         for name, model in loaded_api.items()
                     }
@@ -400,7 +441,7 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                     console.print(traceback.format_exc(limit=3), style="dim red")
                     continue
             try:
-                _collect(_run_single_model(model_name, model, context, window_sizes, strategy, max_res, step, progress))
+                _collect(_run_single_model(model_name, model, context, max_res, step, progress))
             finally:
                 try:
                     model.unload()

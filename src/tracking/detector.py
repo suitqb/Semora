@@ -76,11 +76,46 @@ class LiveTracker:
             output.append(_parse_boxes(results[0]))
         return output
 
+    def detect_with_context(
+        self,
+        context_frames: list[PILImage],
+        target_frame: PILImage,
+    ) -> list[dict]:
+        """Run ByteTrack on [*context_frames, target_frame] and return detections
+        for the target frame only.
+
+        Uses a temporary fresh model so the main tracker state is not affected.
+        This gives ByteTrack enough temporal context to maintain tracks through
+        occlusions, recovering the detection quality of the old process_clip()
+        approach while staying frame-by-frame (live).
+
+        Args:
+            context_frames: preceding frames to warm up ByteTrack (e.g. 4 frames).
+            target_frame:   the frame we actually want detections for.
+
+        Returns:
+            List of detection dicts with track_id, bbox, class_name, confidence.
+        """
+        tmp_model = YOLO(self.model.ckpt_path)
+        all_frames = list(context_frames) + [target_frame]
+        last_detections: list[dict] = []
+        for i, img in enumerate(all_frames):
+            results = tmp_model.track(
+                source=img,
+                persist=True,
+                conf=_CONFIDENCE_THRESHOLD,
+                tracker="bytetrack.yaml",
+                verbose=False,
+            )
+            if i == len(all_frames) - 1:
+                last_detections = _parse_boxes(results[0])
+        return last_detections
+
     def detect_frame(self, frame: PILImage) -> list[dict]:
         """Run plain YOLO detection on a single frame (no tracking state).
 
-        Suitable for single-frame analysis (N=1) where ByteTrack is not needed.
-        Returns a flat list of detections with bbox and class_name, no track_id.
+        Fallback when no context frames are available.
+        Returns detections with bbox and class_name, no track_id.
         """
         results = self.model.predict(
             source=frame,
