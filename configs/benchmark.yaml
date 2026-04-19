@@ -17,7 +17,7 @@ benchmark:
 
   output:
     runs_dir: runs
-    save_raw_outputs: false   # raw VLM text — large, skip unless debugging
+    save_raw_outputs: true    # raw VLM text — large, skip unless debugging
     save_parsed_outputs: true # parsed JSON + judge outputs (required for analysis)
 
   post_run:

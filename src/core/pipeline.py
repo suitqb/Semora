@@ -318,7 +318,7 @@ def _run_single_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                    console.print(traceback.format_exc(limit=2), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red")
                 progress.update(task_id, advance=1)
     else:
         for clip in context.clips:
@@ -355,7 +355,7 @@ def _run_single_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                    console.print(traceback.format_exc(limit=2), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red")
                 progress.update(task_id, advance=1)
 
     return model_scores, model_judge, model_lat, model_tok

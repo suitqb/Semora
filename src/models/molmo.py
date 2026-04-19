@@ -1,16 +1,46 @@
 from __future__ import annotations
 import time
+import warnings
 from PIL import Image
 from .base import BaseVLM, VLMOutput
+
+
+class _SafeRepetitionPenaltyProcessor:
+    """
+    Drop-in replacement for RepetitionPenaltyLogitsProcessor that skips token IDs
+    >= vocab_size (Molmo2 image-patch tokens are in input_ids but outside lm_head range).
+    """
+
+    def __init__(self, penalty: float) -> None:
+        self.penalty = penalty
+
+    def __call__(self, input_ids, scores):
+        import torch
+        vocab_size = scores.shape[-1]
+        for i in range(input_ids.shape[0]):
+            valid = input_ids[i][input_ids[i] < vocab_size]
+            if valid.numel() == 0:
+                continue
+            token_scores = scores[i].gather(0, valid)
+            token_scores = torch.where(
+                token_scores < 0,
+                token_scores * self.penalty,
+                token_scores / self.penalty,
+            )
+            scores[i].scatter_(0, valid, token_scores)
+        return scores
 
 
 class Molmo(BaseVLM):
 
     def load(self) -> None:
-        import torch
+        import os, torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
         import transformers.processing_utils as _pu
         import transformers.modeling_rope_utils as _rope
+
+        # Reduce CUDA allocator fragmentation before any large allocation.
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
         model_id = self.config["model_id"]
 
@@ -45,71 +75,132 @@ class Molmo(BaseVLM):
 
         _pu.ProcessorMixin.__init__ = _permissive_init
         try:
-            self._processor = AutoProcessor.from_pretrained(
-                model_id,
-                trust_remote_code=True,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning,
+                                        message=r".*(?:image|video)_processor_class.*deprecated.*")
+                self._processor = AutoProcessor.from_pretrained(
+                    model_id,
+                    trust_remote_code=True,
+                )
         finally:
             _pu.ProcessorMixin.__init__ = _orig_init
 
-        quant_kwargs = {}
-        if self.config.get("load_in_8bit"):
-            quant_kwargs["load_in_8bit"] = True
-        elif self.config.get("load_in_4bit"):
-            quant_kwargs["load_in_4bit"] = True
-        else:
-            quant_kwargs["torch_dtype"] = getattr(torch, self.config.get("dtype", "bfloat16"))
+        from transformers import BitsAndBytesConfig
 
-        self._model = AutoModelForImageTextToText.from_pretrained(
-            model_id,
-            trust_remote_code=True,
-            device_map="auto",
-            **quant_kwargs,
-        )
+        quant_kwargs: dict = {}
+        if self.config.get("load_in_4bit"):
+            quant_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                # The vision encoder must stay unquantized — bitsandbytes would try to cast
+                # its bias to the quantised dtype → crash. Full path needed: should_convert_module()
+                # checks prefix/suffix, so "vision_backbone" alone won't match "model.vision_backbone.*".
+                llm_int8_skip_modules=["model.vision_backbone"],
+            )
+        elif self.config.get("load_in_8bit"):
+            quant_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_skip_modules=["model.vision_backbone"],
+            )
+
+        with warnings.catch_warnings():
+            for msg in (r".*image_processor_class.*", r".*video_processor_class.*",
+                        r".*rope_config_validation.*"):
+                warnings.filterwarnings("ignore", message=msg, category=FutureWarning)
+            self._model = AutoModelForImageTextToText.from_pretrained(
+                model_id,
+                trust_remote_code=True,
+                device_map="auto",
+                # Force bfloat16 for all non-quantized layers (embedding, lm_head, vision backbone).
+                # Without this, those layers default to float32, causing a dtype mismatch when
+                # vision features (float32) are added into language embeddings (bfloat16) → garbage output.
+                torch_dtype=torch.bfloat16,
+                **quant_kwargs,
+            )
 
         self._model.eval()
+
+        # transformers removed auto-creation of cache_position for remote-code models, but
+        # Molmo2's prepare_inputs_for_generation does `cache_position[0]` without a None guard.
+        # Patch the instance so it builds cache_position itself when the caller omits it.
+        _orig_prepare = self._model.prepare_inputs_for_generation
+
+        def _patched_prepare(input_ids, past_key_values=None, cache_position=None, **kwargs):
+            if cache_position is None:
+                past_len = past_key_values.get_seq_length() if past_key_values is not None else 0
+                cache_position = torch.arange(
+                    past_len, past_len + input_ids.shape[1], device=input_ids.device
+                )
+            return _orig_prepare(input_ids, past_key_values=past_key_values,
+                                 cache_position=cache_position, **kwargs)
+
+        self._model.prepare_inputs_for_generation = _patched_prepare
+
         self._loaded = True
 
     def infer(self, frames: list[Image.Image], prompt: str) -> VLMOutput:
         assert self._loaded
         import torch
 
+        # Step 1: render the chat template to a plain string containing <|image|> placeholders.
+        # Molmo2's processor.__call__ then replaces each placeholder with the actual image tokens.
         messages = [
             {
                 "role": "user",
-                "content": [{"type": "image", "image": img} for img in frames]
+                "content": [{"type": "image"} for _ in frames]
                          + [{"type": "text", "text": prompt}],
             }
         ]
-
-        inputs = self._processor.apply_chat_template(
+        text = self._processor.apply_chat_template(
             messages,
-            tokenize=True,
             add_generation_prompt=True,
-            return_tensors="pt",
-            return_dict=True,
+            tokenize=False,
         )
-        inputs = {
-            k: v.to(self._model.device) if isinstance(v, torch.Tensor) else v
-            for k, v in inputs.items()
-            if v is not None
-        }
+
+        # Step 2: tokenise + encode images.
+        inputs = self._processor(
+            text=text,
+            images=frames,
+            return_tensors="pt",
+        )
+
+        # With device_map="auto" + CPU offloading, model.device may be 'meta'.
+        # Find the first real (non-meta) device instead.
+        _device = next(
+            (p.device for p in self._model.parameters() if p.device.type != "meta"),
+            torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        )
+        inputs = {k: v.to(_device) if isinstance(v, torch.Tensor) else v
+                  for k, v in inputs.items()}
 
         n_input_tokens = inputs["input_ids"].shape[-1]
 
+        from transformers import LogitsProcessorList
+
+        logits_processors = LogitsProcessorList([
+            _SafeRepetitionPenaltyProcessor(1.5),
+        ])
+
+        torch.cuda.empty_cache()
         t0 = time.perf_counter()
         with torch.inference_mode():
             output = self._model.generate(
                 **inputs,
                 max_new_tokens=self.config.get("max_new_tokens", 512),
                 do_sample=False,
+                use_cache=False,
+                no_repeat_ngram_size=4,
+                logits_processor=logits_processors,
             )
         latency = time.perf_counter() - t0
 
         generated_ids = output[:, n_input_tokens:]
-        raw_text = self._processor.batch_decode(
-            generated_ids, skip_special_tokens=True
-        )[0]
+        # Use the wrapped tokenizer for decoding (processor.tokenizer is always present).
+        raw_text = self._processor.tokenizer.decode(
+            generated_ids[0], skip_special_tokens=True
+        )
 
         return VLMOutput(
             model_name=self.name,
@@ -117,7 +208,7 @@ class Molmo(BaseVLM):
             window_size=len(frames),
             raw_text=raw_text.strip(),
             latency_s=round(latency, 3),
-            prompt_tokens=int(inputs["input_ids"].shape[-1]),
+            prompt_tokens=int(n_input_tokens),
             completion_tokens=int(generated_ids.shape[-1]),
         )
 

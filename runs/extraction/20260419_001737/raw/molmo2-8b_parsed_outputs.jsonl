@@ -1,0 +1,3 @@
+{"model": "molmo2-8b", "N": 1, "clip_id": "clip_1", "center_frame": "000006.png", "frame_names": ["000006.png"], "parse_success": false, "parsed": {"frames": [], "parse_success": false, "parse_error": "Expecting value: line 22 column 7 (char 50)"}}
+{"model": "molmo2-8b", "N": 1, "clip_id": "clip_1", "center_frame": "000726.png", "frame_names": ["000726.png"], "parse_success": false, "parsed": {"frames": [], "parse_success": false, "parse_error": "Extra data: line 1 column 434 (char 433)"}}
+{"model": "molmo2-8b", "N": 1, "clip_id": "clip_1", "center_frame": "001446.png", "frame_names": ["001446.png"], "parse_success": false, "parsed": {"frames": [], "parse_success": false, "parse_error": "Expecting value: line 1 column 1 (char 0)"}}
