@@ -2,7 +2,8 @@ benchmark:
   run_id: null    # null = timestamp auto-generated (YYYYMMDD_HHMMSS)
 
   features:
-    tracking: false   # true → run YOLO+ByteTrack live and inject context into the prompt
+    tracking:   false  # true → YOLO+ByteTrack, inject tracking context into prompt
+    multi_crop: false  # true → append entity crops after full frame, inject crop context into prompt
 
   scorers:
     titan_gt: true

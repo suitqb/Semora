@@ -16,7 +16,7 @@ _RETRY_DELAY = 5  # seconds between retries
 
 def _is_transient(e: Exception) -> bool:
     s = str(e).lower()
-    return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit", "connection"))
+    return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit", "connection", "remote", "incomplete", "chunked"))
 
 
 class Mistral(BaseVLM):
@@ -53,6 +53,10 @@ class Mistral(BaseVLM):
 
     def infer(self, frames: List[Image.Image], prompt: str) -> VLMOutput:
         assert self._loaded
+
+        max_images = self.config.get("max_images", 8)
+        if len(frames) > max_images:
+            frames = frames[:max_images]
 
         messages: List[Any] = [
             {

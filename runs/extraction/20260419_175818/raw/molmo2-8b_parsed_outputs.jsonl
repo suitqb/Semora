@@ -1,2 +1,0 @@
-{"model": "molmo2-8b", "N": 1, "clip_id": "clip_1", "center_frame": "000006.png", "frame_names": ["000006.png"], "parse_success": true, "parsed": {"frames": [{"scene_context": {}, "pedestrians": [], "vehicles": []}], "parse_success": true, "parse_error": null}}
-{"model": "molmo2-8b", "N": 1, "clip_id": "clip_1", "center_frame": "000126.png", "frame_names": ["000126.png"], "parse_success": true, "parsed": {"frames": [{"scene_context": {}, "pedestrians": [], "vehicles": []}], "parse_success": true, "parse_error": null}}

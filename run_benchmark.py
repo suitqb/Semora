@@ -121,17 +121,57 @@ def interactive_tracking_selection(current: bool, mode: str = "extraction") -> b
     return options[current_index]
 
 
+def interactive_multi_crop_selection(current: bool) -> bool:
+    from rich.live import Live
+
+    options = [False, True]
+    current_index = 1 if current else 0
+
+    rows = [
+        (False, "[red]OFF[/red]", "Standard — full frame only"),
+        (True,  "[green]ON[/green]",  "Append entity crops after full frame (YOLO bboxes + padding)"),
+    ]
+    title = "[bold cyan]Multi-Crop Context[/bold cyan]\n[dim](↑↓: Navigate, Enter: Select)[/dim]"
+
+    def generate_table() -> Table:
+        table = Table(title=title, box=None)
+        table.add_column("", justify="center", width=3)
+        table.add_column("", width=6)
+        table.add_column("Description", style="dim")
+
+        for i, (_, label, desc) in enumerate(rows):
+            prefix = ">" if i == current_index else " "
+            style  = "bold white on blue" if i == current_index else ""
+            table.add_row(prefix, label, desc, style=style)
+        return table
+
+    with Live(generate_table(), auto_refresh=False, console=console) as live:
+        while True:
+            live.update(generate_table(), refresh=True)
+            key = get_key()
+            if key == "\x1b[A":
+                current_index = (current_index - 1) % len(options)
+            elif key == "\x1b[B":
+                current_index = (current_index + 1) % len(options)
+            elif key in ("\r", "\n"):
+                break
+            elif key == "\x03":
+                sys.exit(0)
+
+    return options[current_index]
+
+
 def interactive_model_selection(available_models: list[str]) -> list[str]:
     from rich.live import Live
-    
+
     selected_mask = [False] * len(available_models)
     current_index = 0
-    
+
     def generate_table() -> Table:
         table = Table(title="[bold cyan]Model Selection[/bold cyan]\n[dim](Space: Toggle, Enter: Validate, A: Select All, N: Select None)[/dim]", box=None)
         table.add_column("Status", justify="center", width=10)
         table.add_column("Model", style="green")
-        
+
         for i, model in enumerate(available_models):
             prefix = "> " if i == current_index else "  "
             status = "[bold green][X][/bold green]" if selected_mask[i] else "[ ]"
@@ -143,7 +183,7 @@ def interactive_model_selection(available_models: list[str]) -> list[str]:
         while True:
             live.update(generate_table(), refresh=True)
             key = get_key()
-            
+
             if key == '\x1b[A': # Up arrow
                 current_index = (current_index - 1) % len(available_models)
             elif key == '\x1b[B': # Down arrow
@@ -181,10 +221,31 @@ def main() -> None:
                         help="Disable all prompts (uses --models or all models, defaults to extraction mode)")
     parser.add_argument("-c", "--use-config", action="store_true",
                         help="Use only 'enabled: true' models from models.yaml")
+    parser.add_argument("--run-id",      type=str, default=None,
+                        help="Human-readable run identifier (used as directory name under runs/). "
+                             "Defaults to YYYYMMDD_HHMMSS timestamp.")
+    parser.add_argument("--tracking",   type=lambda x: x.lower() == "true", default=None,
+                        metavar="true|false",
+                        help="Override tracking feature (bypasses interactive prompt and benchmark.yaml)")
+    parser.add_argument("--multi-crop", type=lambda x: x.lower() == "true", default=None,
+                        metavar="true|false",
+                        help="Override multi_crop feature (bypasses interactive prompt and benchmark.yaml)")
+    parser.add_argument("--max-resolution", type=str, default=None,
+                        metavar="WxH",
+                        help="Override max resolution (e.g. 640x480). Defaults to clips config value.")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging (per-frame inference details)")
 
     args = parser.parse_args()
+
+    max_resolution = None
+    if args.max_resolution:
+        try:
+            w, h = args.max_resolution.lower().split("x")
+            max_resolution = (int(w), int(h))
+        except ValueError:
+            console.print(f"[bold red]Invalid --max-resolution '{args.max_resolution}', expected WxH (e.g. 640x480)[/bold red]")
+            sys.exit(1)
 
     if args.debug:
         import src.core.utils as _utils
@@ -226,14 +287,21 @@ def main() -> None:
     if not selected_models and not args.use_config:
         selected_models = available_models
 
-    # ── Tracking / detection selection (interactive only) ────────────────────
-    tracking_override: bool | None = None
-    if not args.non_interactive:
+    # ── Tracking / detection + multi-crop selection ──────────────────────────────
+    # CLI flags (--tracking / --multi-crop) take priority over interactive prompts
+    tracking_override:   bool | None = args.tracking
+    multi_crop_override: bool | None = args.multi_crop
+
+    if not args.non_interactive and tracking_override is None:
         import yaml as _yaml
         with open(args.benchmark_cfg) as _f:
             _bcfg = _yaml.safe_load(_f)
-        _current_tracking = _bcfg.get("benchmark", {}).get("features", {}).get("tracking", False)
+        _features = _bcfg.get("benchmark", {}).get("features", {})
+        _current_tracking   = _features.get("tracking",   False)
+        _current_multi_crop = _features.get("multi_crop", False)
         tracking_override = interactive_tracking_selection(_current_tracking, mode=mode)
+        if mode != "complexity" and multi_crop_override is None:
+            multi_crop_override = interactive_multi_crop_selection(_current_multi_crop)
 
     # ── Run benchmark ─────────────────────────────────────────────────────────
     if mode == "complexity":
@@ -244,6 +312,8 @@ def main() -> None:
             benchmark_cfg_path=args.benchmark_cfg,
             selected_models=selected_models,
             tracking=tracking_override,
+            run_id=args.run_id,
+            max_resolution=max_resolution,
         )
     else:
         results_dir = run(
@@ -252,6 +322,9 @@ def main() -> None:
             benchmark_cfg_path=args.benchmark_cfg,
             selected_models=selected_models,
             tracking=tracking_override,
+            multi_crop=multi_crop_override,
+            run_id=args.run_id,
+            max_resolution=max_resolution,
         )
 
     console.print(f"\n[bold green]✓ Raw results saved → {results_dir / 'raw'}[/bold green]")

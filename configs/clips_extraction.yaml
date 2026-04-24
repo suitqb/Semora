@@ -22,41 +22,41 @@ clips:
     video_path: clips/clip_1/images
     annotation_path: annotations/clip_1.csv
 
-  # - clip_id: clip_75
-  #   video_path: clips/clip_75/images
-  #   annotation_path: annotations/clip_75.csv
+  - clip_id: clip_75
+    video_path: clips/clip_75/images
+    annotation_path: annotations/clip_75.csv
 
-  # - clip_id: clip_279
-  #   video_path: clips/clip_279/images
-  #   annotation_path: annotations/clip_279.csv
+  - clip_id: clip_279
+    video_path: clips/clip_279/images
+    annotation_path: annotations/clip_279.csv
 
-  # - clip_id: clip_280
-  #   video_path: clips/clip_280/images
-  #   annotation_path: annotations/clip_280.csv
+  - clip_id: clip_280
+    video_path: clips/clip_280/images
+    annotation_path: annotations/clip_280.csv
 
-  # - clip_id: clip_544
-  #   video_path: clips/clip_544/images
-  #   annotation_path: annotations/clip_544.csv
+  - clip_id: clip_544
+    video_path: clips/clip_544/images
+    annotation_path: annotations/clip_544.csv
 
-  # - clip_id: clip_552
-  #   video_path: clips/clip_552/images
-  #   annotation_path: annotations/clip_552.csv
+  - clip_id: clip_552
+    video_path: clips/clip_552/images
+    annotation_path: annotations/clip_552.csv
 
-  # - clip_id: clip_621
-  #   video_path: clips/clip_621/images
-  #   annotation_path: annotations/clip_621.csv
+  - clip_id: clip_621
+    video_path: clips/clip_621/images
+    annotation_path: annotations/clip_621.csv
 
-  # - clip_id: clip_761
-  #   video_path: clips/clip_761/images
-  #   annotation_path: annotations/clip_761.csv
+  - clip_id: clip_761
+    video_path: clips/clip_761/images
+    annotation_path: annotations/clip_761.csv
 
-  # - clip_id: clip_785
-  #   video_path: clips/clip_785/images
-  #   annotation_path: annotations/clip_785.csv
+  - clip_id: clip_785
+    video_path: clips/clip_785/images
+    annotation_path: annotations/clip_785.csv
 
 prompt:
-  file: prompts/extraction_v2.txt
+  file: prompts/extraction_v3.txt
 
 sampling:
   max_resolution: [1280, 720]
-  step: 20
+  step: 8

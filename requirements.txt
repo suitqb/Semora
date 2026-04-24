@@ -11,9 +11,8 @@ ultralytics  # YOLOv8 + ByteTrack for offline tracking pre-computation
 mistralai==2.1.0
 openai # added by audit
 torch # added by audit
-transformers # added by audit
+transformers==4.57.1
 bitsandbytes  # 4-bit / 8-bit quantisation pour les modèles locaux trop grands pour le GPU
-qwen-vl-utils==0.0.14
 molmo-utils==0.0.1
 
 # --- Analysis Interface ---

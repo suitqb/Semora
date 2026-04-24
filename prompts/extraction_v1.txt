@@ -12,7 +12,6 @@ The JSON must follow this exact schema:
   },
   "pedestrians": [
     {
-      "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
       "atomic_action": "<one of: walking, running, standing, sitting, bending, biking, motorcycling, other>",
       "simple_context": "<one of: walking along the side of the road, crossing the road, waiting to cross, jaywalking, walking on the sidewalk, standing on the sidewalk, other>",
       "communicative": "<one of: none of the above, looking at phone, talking on phone, talking to someone, other>",
@@ -23,7 +22,6 @@ The JSON must follow this exact schema:
   ],
   "vehicles": [
     {
-      "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
       "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
       "motion_status": "<one of: stopped, moving, parked, other>",
       "trunk_open": "<one of: open, closed, unknown>",

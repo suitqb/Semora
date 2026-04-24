@@ -21,15 +21,18 @@ class GPT(BaseVLM):
             raise ImportError("pip install openai")
 
         cfg = self.config.get("openai_api") or self.config.get("mistral_api", {})
-        
-        # Récupération de l'API key : priorité config (si non-template) puis env
-        api_key = cfg.get("api_key")
-        if not api_key or "${" in api_key:
-            api_key = os.environ.get("OPENAI_API_KEY")
-            
-        base_url = cfg.get("base_url")
-        if not base_url or "${" in base_url:
-            base_url = os.environ.get("OPENAI_API_BASE")
+
+        def _resolve(value: str | None, fallback_env: str) -> str | None:
+            if not value:
+                return os.environ.get(fallback_env)
+            import re
+            m = re.fullmatch(r"\$\{(\w+)\}", value.strip())
+            if m:
+                return os.environ.get(m.group(1))
+            return value
+
+        api_key  = _resolve(cfg.get("api_key"),  "OPENAI_API_KEY")
+        base_url = _resolve(cfg.get("base_url"), "OPENAI_API_BASE")
 
         self._client = OpenAI(
             api_key=api_key,
@@ -41,6 +44,10 @@ class GPT(BaseVLM):
 
     def infer(self, frames: list[Image.Image], prompt: str) -> VLMOutput:
         assert self._loaded
+
+        max_images = self.config.get("max_images")
+        if max_images and len(frames) > max_images:
+            frames = frames[:max_images]
 
         content: list[dict] = [{"type": "text", "text": prompt}]
         for img in frames:
@@ -65,7 +72,7 @@ class GPT(BaseVLM):
 
         def _is_transient(e: Exception) -> bool:
             s = str(e).lower()
-            return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit"))
+            return any(k in s for k in ("timeout", "timed out", "503", "502", "429", "rate limit", "connection", "remote", "incomplete", "chunked"))
 
         dbg(f"sending to {self._model_id} · {len(frames)} image(s) · max_tokens={max_tokens}")
         t0 = time.perf_counter()

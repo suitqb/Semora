@@ -12,12 +12,6 @@ If you receive 3 images → your JSON must have exactly "frame_1", "frame_2" and
 If you receive 4 images → your JSON must have exactly "frame_1", "frame_2", "frame_3" and "frame_4".
 Returning fewer keys than images received is an error. Every image must have its own key.
 
-CRITICAL CONSISTENCY RULE: If the same person or vehicle is visible across multiple frames,
-their `track_hint` MUST be IDENTICAL in every frame where they appear.
-Use the exact same string — do not paraphrase, abbreviate, or reword it.
-Example: if you write "person in blue jacket on the left" in frame_1,
-you must write exactly "person in blue jacket on the left" in frame_2, frame_3, etc.
-
 The JSON must follow this exact schema — one entry per frame received:
 
 {
@@ -28,7 +22,6 @@ The JSON must follow this exact schema — one entry per frame received:
     },
     "pedestrians": [
       {
-        "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
         "atomic_action": "<one of: walking, running, standing, sitting, bending, squatting, laying down, jumping, none of the above>",
         "simple_context": "<one of: walking along the side of the road, walking on the road, waiting to cross street, crossing a street at pedestrian crossing, jaywalking (illegally crossing NOT at pedestrian crossing), entering a building, exiting a building, biking, motorcycling, none of the above>",
         "communicative": "<one of: none of the above, looking into phone, talking on phone, talking in group>",
@@ -39,7 +32,6 @@ The JSON must follow this exact schema — one entry per frame received:
     ],
     "vehicles": [
       {
-        "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
         "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
         "motion_status": "<one of: stopped, moving, parked>",
         "trunk_open": "<one of: open, closed>",
@@ -50,18 +42,18 @@ The JSON must follow this exact schema — one entry per frame received:
   },
   "frame_2": {
     "scene_context": { "location": "...", "description": "..." },
-    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
-    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
+    "pedestrians": [ { "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
   },
   "frame_3": {
     "scene_context": { "location": "...", "description": "..." },
-    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
-    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
+    "pedestrians": [ { "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
   },
   "frame_4": {
     "scene_context": { "location": "...", "description": "..." },
-    "pedestrians": [ { "track_hint": "...", "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
-    "vehicles": [ { "track_hint": "...", "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
+    "pedestrians": [ { "atomic_action": "...", "simple_context": "...", "communicative": "...", "transporting": "...", "age": "...", "spatial_relations": [] } ],
+    "vehicles": [ { "type": "...", "motion_status": "...", "trunk_open": "...", "doors_open": "...", "spatial_relations": [] } ]
   }
 }
 

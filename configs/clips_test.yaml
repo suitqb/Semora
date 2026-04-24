@@ -1,0 +1,14 @@
+dataset: TITAN
+data_root: data/titan
+
+clips:
+  - clip_id: clip_1
+    video_path: clips/clip_1/images
+    annotation_path: annotations/clip_1.csv
+
+prompt:
+  file: prompts/extraction_v3.txt
+
+sampling:
+  max_resolution: [1280, 720]
+  step: 50

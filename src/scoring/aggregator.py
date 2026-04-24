@@ -125,9 +125,31 @@ def build_scores_payload(
     summaries: list[ModelSummary],
     tracking: bool,
     mode: str = "extraction",
+    multi_crop: bool = False,
+    max_resolution: tuple | None = None,
 ) -> dict:
     """Wrap aggregated summaries with run metadata for serialisation to scores.json."""
+    if mode == "complexity":
+        label = "tracking" if tracking else "baseline"
+    else:
+        if tracking and multi_crop:
+            label = "tracking+crop"
+        elif tracking:
+            label = "tracking"
+        elif multi_crop:
+            label = "crop"
+        else:
+            label = "baseline"
+
+    from datetime import datetime
     return {
-        "meta": {"tracking": tracking, "mode": mode},
+        "meta": {
+            "label":          label,
+            "timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "tracking":       tracking,
+            "multi_crop":     multi_crop,
+            "mode":           mode,
+            "max_resolution": list(max_resolution) if max_resolution else None,
+        },
         "results": [s.__dict__ for s in summaries],
     }

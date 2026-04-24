@@ -446,9 +446,10 @@ def _save_pdr_scores(context: PipelineContext, results: InferenceResults) -> Non
 
     payload = {
         "meta": {
-            "tracking": context.tracking_enabled,
-            "mode":     context.mode,
-            "run_id":   context.run_id,
+            "tracking":       context.tracking_enabled,
+            "mode":           context.mode,
+            "run_id":         context.run_id,
+            "max_resolution": list(context.max_resolution) if context.max_resolution else None,
         },
         "results": result_rows,
     }
@@ -468,11 +469,19 @@ def run_complexity(
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
     tracking: bool | None = None,
+    run_id: str | None = None,
+    max_resolution: tuple | None = None,
 ) -> Path:
     """Complexity pipeline entry point (Plan 3)."""
     from .pipeline import _DETECTION_PROMPT_FILE
     try:
-        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="complexity")
+        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="complexity", run_id=run_id)
+        if max_resolution is not None:
+            context.sampling_cfg["max_resolution"] = list(max_resolution)
+            context.max_resolution = max_resolution
+        else:
+            res = context.sampling_cfg.get("max_resolution")
+            context.max_resolution = tuple(res) if res else None
         if tracking is not None:
             context.tracking_enabled = tracking
             if tracking and context.live_tracker is None:

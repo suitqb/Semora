@@ -2,6 +2,18 @@ models:
 
   # ── API models ───────────────────────────────────────────────────────────────
 
+  openrouter-test:
+    enabled: false
+    backend: openai_api
+    model_id: allenai/molmo-2-8b
+    max_new_tokens: 1024
+    temperature: 0.0
+    parallel_workers: 4
+    openai_api:
+      base_url: "https://openrouter.ai/api/v1"
+      api_key: "${OPENROUTER_API_KEY}"
+      timeout_s: 60
+
   mistral-medium:
     enabled: true
     backend: mistral_api
@@ -21,9 +33,10 @@ models:
     max_new_tokens: 12000
     temperature: 0.0
     parallel_workers: 4
-    mistral_api:
-      base_url: "${MISTRAL_LARGE_API_BASE}"
-      api_key: "${AZURE_API_KEY}"
+    max_images: 8
+    openai_api:
+      base_url: "${OPENAI_API_BASE}"
+      api_key: "${OPENAI_API_KEY}"
       timeout_s: 60
 
   gpt-4o-mini:
@@ -33,6 +46,7 @@ models:
     max_new_tokens: 12000
     temperature: 0.0
     parallel_workers: 4
+    max_images: 8
     openai_api:
       base_url: "${OPENAI_API_BASE}"
       api_key: "${OPENAI_API_KEY}"
@@ -45,15 +59,16 @@ models:
     max_new_tokens: 12000
     temperature: 0.0
     parallel_workers: 4
+    max_images: 8
     openai_api:
-      base_url: "${GPT_5_MINI_API_BASE}"
-      api_key: "${AZURE_API_KEY}"
+      base_url: "${OPENAI_API_BASE}"
+      api_key: "${OPENAI_API_KEY}"
       timeout_s: 180
 
   # ── Local models (Transformers) ───────────────────────────────────────────────
 
   molmo2-8b:
-    enabled: true
+    enabled: false
     backend: local_transformers
     model_id: allenai/Molmo2-8B
     load_in_8bit: true          # 8-bit (~8 Go) — 4-bit (~4.5 Go) mais cause des dégénérescences de génération
@@ -63,24 +78,14 @@ models:
     transformers:
       trust_remote_code: true
 
-  qwen2-5-vl-7b:
-    enabled: true
-    backend: local_transformers
-    model_id: Qwen/Qwen2.5-VL-7B-Instruct
-    dtype: bfloat16
-    max_new_tokens: 12000
+  molmo2-8b-pointing:
+    enabled: false
+    backend: molmo_pointing
+    model_id: allenai/Molmo2-8B
+    load_in_8bit: true
+    max_new_tokens: 512
     temperature: 0.0
     device: cuda
     transformers:
-      attn_implementation: sdpa
+      trust_remote_code: true
 
-  llava-1-6:
-    enabled: true
-    backend: local_transformers
-    model_id: llava-hf/llava-v1.6-mistral-7b-hf
-    dtype: float16
-    max_new_tokens: 12000
-    temperature: 0.0
-    device: cuda
-    transformers:
-      attn_implementation: eager

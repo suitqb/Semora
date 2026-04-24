@@ -17,7 +17,6 @@ Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
     },
     "pedestrians": [
       {
-        "track_hint": "<brief visual descriptor to identify this person, e.g. 'person in red jacket on the left'>",
         "atomic_action": "<one of: walking, running, standing, sitting, bending, squatting, laying down, jumping, none of the above>",
         "simple_context": "<one of: walking along the side of the road, walking on the road, waiting to cross street, crossing a street at pedestrian crossing, jaywalking (illegally crossing NOT at pedestrian crossing), entering a building, exiting a building, biking, motorcycling, none of the above>",
         "communicative": "<one of: none of the above, looking into phone, talking on phone, talking in group>",
@@ -28,7 +27,6 @@ Return ONLY a valid JSON object. No explanation, no markdown, no preamble.
     ],
     "vehicles": [
       {
-        "track_hint": "<brief visual descriptor, e.g. 'white sedan in the center'>",
         "type": "<one of: car, truck, bus, motorcycle, bicycle, other>",
         "motion_status": "<one of: stopped, moving, parked>",
         "trunk_open": "<one of: open, closed>",

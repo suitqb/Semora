@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from ..tracking.context_builder import (
     build_tracking_context_from_detections,
     build_detection_context,
+    build_crop_context,
 )
 
 _TRACKING_PROMPT_FILE   = Path("prompts/extraction_v4_tracking.txt")
@@ -53,8 +54,10 @@ class PipelineContext:
     prompt: str
     mode: str = "extraction"
     tracking_enabled: bool = False
+    multi_crop_enabled: bool = False
+    max_resolution: tuple | None = None
     fallback_prompt: str = ""   # non-tracking prompt, used when tracking context is empty
-    live_tracker: object = None  # LiveTracker instance (set when tracking_enabled=True)
+    live_tracker: object = None  # LiveTracker instance (set when tracking_enabled or multi_crop_enabled)
 
 @dataclass
 class InferenceResults:
@@ -74,6 +77,7 @@ def load_pipeline(
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
     mode: str = "extraction",
+    run_id: str | None = None,
 ) -> PipelineContext:
     """Load configurations, clips, and models required for the pipeline."""
     models_cfg    = _load_yaml(models_cfg_path)["models"]
@@ -86,30 +90,39 @@ def load_pipeline(
             models_cfg[m_key]["enabled"] = m_key in selected_models
 
     sampling_cfg = clips_cfg["sampling"]
-    tracking_enabled = benchmark_cfg.get("features", {}).get("tracking", False)
+    tracking_enabled   = benchmark_cfg.get("features", {}).get("tracking",   False)
+    multi_crop_enabled = benchmark_cfg.get("features", {}).get("multi_crop", False) and mode != "complexity"
 
     prompt_cfg = clips_cfg.get("prompt") or benchmark_cfg["prompt"]
     prompt_file = Path(prompt_cfg["file"])
     base_prompt = prompt_file.read_text().strip()
 
-    if tracking_enabled:
+    needs_tracker = tracking_enabled or multi_crop_enabled
+    if needs_tracker:
         from ..tracking.detector import LiveTracker
         live_tracker = LiveTracker()
-        if mode == "complexity":
-            prompt = _DETECTION_PROMPT_FILE.read_text().strip()
-            fallback_prompt = base_prompt
-            console.print("[bold cyan]Detection enabled — YOLO will annotate each frame before inference.[/bold cyan]")
+        if tracking_enabled:
+            if mode == "complexity":
+                prompt = _DETECTION_PROMPT_FILE.read_text().strip()
+                fallback_prompt = base_prompt
+                console.print("[bold cyan]Detection enabled — YOLO will annotate each frame before inference.[/bold cyan]")
+            else:
+                prompt = _TRACKING_PROMPT_FILE.read_text().strip()
+                fallback_prompt = base_prompt
+                console.print("[bold cyan]Live tracking enabled — YOLO will run per window.[/bold cyan]")
         else:
-            prompt = _TRACKING_PROMPT_FILE.read_text().strip()
+            # multi_crop only — no tracking context injected into prompt
+            prompt = base_prompt
             fallback_prompt = base_prompt
-            console.print("[bold cyan]Live tracking enabled — YOLO will run per window.[/bold cyan]")
+        if multi_crop_enabled:
+            console.print("[bold cyan]Multi-crop enabled — entity crops will be appended to each VLM call.[/bold cyan]")
     else:
         prompt = base_prompt
         fallback_prompt = ""
         live_tracker = None
 
 
-    run_id = benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = run_id or benchmark_cfg.get("run_id") or datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = Path(benchmark_cfg["output"]["runs_dir"]) / mode / run_id
     results_dir.mkdir(parents=True, exist_ok=True)
     (results_dir / "raw").mkdir(exist_ok=True)
@@ -136,7 +149,7 @@ def load_pipeline(
     return PipelineContext(
         models=models, clips=clips, benchmark_cfg=benchmark_cfg,
         sampling_cfg=sampling_cfg, results_dir=results_dir, run_id=run_id, prompt=prompt,
-        mode=mode, tracking_enabled=tracking_enabled,
+        mode=mode, tracking_enabled=tracking_enabled, multi_crop_enabled=multi_crop_enabled,
         fallback_prompt=fallback_prompt, live_tracker=live_tracker,
     )
 
@@ -144,17 +157,20 @@ def _build_clip_detection_cache(
     tracker,
     clip: "TITANClip",
     max_res: tuple | None,
+    stateful: bool = True,
 ) -> dict[str, list[dict]]:
-    """Scan every frame of a clip in chronological order with ByteTrack.
+    """Scan every frame of a clip and return {frame_name: detections}.
 
-    ByteTrack sees every frame — same temporal context as offline preprocessing —
-    while adding negligible wall-clock time (YOLO ~50 ms/frame vs VLM ~2-5 s/frame).
-    Returns a dict {frame_name: [detections]} for all frames in the clip.
+    stateful=True  → ByteTrack sees every frame in order (stable track IDs, use for tracking).
+    stateful=False → independent per-frame YOLO detection (no ByteTrack state, use for crop-only).
     """
     cache: dict[str, list[dict]] = {}
     for frame_name in clip.frame_names:
         img = clip.get_frame(frame_name, max_resolution=max_res)
-        cache[frame_name] = tracker.process_frames([img])[0]
+        if stateful:
+            cache[frame_name] = tracker.process_frames([img])[0]
+        else:
+            cache[frame_name] = tracker.detect_frame(img)
     return cache
 
 
@@ -208,9 +224,11 @@ def _infer_window(
     prompt: str, benchmark_cfg: dict,
     raw_log_path: Path, parsed_log_path: Path, judge_log_path: Path,
     raw_lock: threading.Lock, parsed_lock: threading.Lock, judge_lock: threading.Lock,
+    extra_frames: list | None = None,
 ):
     """Process a single window: infer → parse → score → judge. Thread-safe."""
-    vlm_out = model.infer(window.frames, prompt)
+    all_frames = window.frames + (extra_frames or [])
+    vlm_out = model.infer(all_frames, prompt)
     vlm_out.clip_id, vlm_out.center_frame, vlm_out.frame_names = clip.clip_id, window.center_frame, window.frame_names
 
     if benchmark_cfg["output"].get("save_raw_outputs"):
@@ -241,6 +259,33 @@ def _infer_window(
                         f.write(record)
 
     return frame_scores, judge_score, vlm_out.latency_s, vlm_out.prompt_tokens or 0, vlm_out.completion_tokens or 0
+
+
+def _build_crops_for_window(
+    context: "PipelineContext",
+    window,
+    det_cache: dict[str, list[dict]] | None,
+) -> tuple[list, str]:
+    """Return (crop_images, crop_context_str) when multi_crop is enabled, else ([], '')."""
+    if not context.multi_crop_enabled or context.live_tracker is None:
+        return [], ""
+
+    if det_cache is not None:
+        detections = det_cache.get(window.center_frame, [])
+    else:
+        detections = context.live_tracker.detect_frame(window.frames[0])
+
+    if not detections:
+        return [], ""
+
+    from ..tracking.crop_builder import build_crops
+    crops_with_dets = build_crops(window.frames[0], detections)
+    if not crops_with_dets:
+        return [], ""
+
+    crop_images = [c for c, _ in crops_with_dets]
+    crop_dets   = [d for _, d in crops_with_dets]
+    return crop_images, build_crop_context(crop_dets)
 
 
 def _run_single_model(
@@ -285,25 +330,37 @@ def _run_single_model(
         if context.live_tracker is not None and context.mode != "complexity":
             for clip in context.clips:
                 context.live_tracker.reset()
-                console.print(
-                    f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
-                    f"for tracking context...[/cyan]"
-                )
-                clip_caches[clip.clip_id] = _build_clip_detection_cache(
-                    context.live_tracker, clip, max_res
-                )
+                if context.tracking_enabled:
+                    console.print(
+                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                        f"for tracking context...[/cyan]"
+                    )
+                    clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                        context.live_tracker, clip, max_res, stateful=True
+                    )
+                else:
+                    console.print(
+                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                        f"for crop detection...[/cyan]"
+                    )
+                    clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                        context.live_tracker, clip, max_res, stateful=False
+                    )
         all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, max_res, step)]
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {
-                executor.submit(
+            futures = {}
+            for clip, window in all_windows:
+                base_prompt  = _resolve_window_prompt(
+                    context, clip.clip_id, window.frame_names, window.frames,
+                    det_cache=clip_caches.get(clip.clip_id),
+                )
+                crop_frames, crop_ctx = _build_crops_for_window(context, window, clip_caches.get(clip.clip_id))
+                final_prompt = (crop_ctx + "\n\n" + base_prompt) if crop_ctx else base_prompt
+                futures[executor.submit(
                     _infer_window, clip=clip, window=window,
-                    **{**_win_args, "prompt": _resolve_window_prompt(
-                        context, clip.clip_id, window.frame_names, window.frames,
-                        det_cache=clip_caches.get(clip.clip_id),
-                    )},
-                ): (clip, window)
-                for clip, window in all_windows
-            }
+                    extra_frames=crop_frames,
+                    **{**_win_args, "prompt": final_prompt},
+                )] = (clip, window)
             for future in as_completed(futures):
                 clip, window = futures[future]
                 try:
@@ -323,15 +380,23 @@ def _run_single_model(
     else:
         for clip in context.clips:
             det_cache: dict[str, list[dict]] | None = None
-            if context.live_tracker is not None:
+            if context.live_tracker is not None and context.mode != "complexity":
                 context.live_tracker.reset()
-                if context.mode != "complexity":
+                if context.tracking_enabled:
                     console.print(
                         f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
                         f"for tracking context...[/cyan]"
                     )
                     det_cache = _build_clip_detection_cache(
-                        context.live_tracker, clip, max_res
+                        context.live_tracker, clip, max_res, stateful=True
+                    )
+                else:
+                    console.print(
+                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                        f"for crop detection...[/cyan]"
+                    )
+                    det_cache = _build_clip_detection_cache(
+                        context.live_tracker, clip, max_res, stateful=False
                     )
             for window in sample_windows(clip, max_res, step):
                 try:
@@ -340,7 +405,12 @@ def _run_single_model(
                         context, clip.clip_id, window.frame_names, window.frames,
                         det_cache=det_cache,
                     )
-                    frame_scores, js, lat, pt, ct = _infer_window(clip=clip, window=window, **{**_win_args, "prompt": window_prompt})
+                    crop_frames, crop_ctx = _build_crops_for_window(context, window, det_cache)
+                    final_prompt = (crop_ctx + "\n\n" + window_prompt) if crop_ctx else window_prompt
+                    frame_scores, js, lat, pt, ct = _infer_window(
+                        clip=clip, window=window, extra_frames=crop_frames,
+                        **{**_win_args, "prompt": final_prompt}
+                    )
                     model_scores.extend(frame_scores)
                     if js:
                         model_judge.append(js)
@@ -361,8 +431,14 @@ def _run_single_model(
     return model_scores, model_judge, model_lat, model_tok
 
 
-def run_inference(context: PipelineContext) -> InferenceResults:
-    """Execute the inference loop. API models run in parallel; local models run sequentially."""
+def run_inference(context: PipelineContext, keep_loaded: bool = False) -> InferenceResults:
+    """Execute the inference loop. API models run in parallel; local models run sequentially.
+
+    Args:
+        keep_loaded: if True, skip load/unload — models must already be loaded and
+                     will remain loaded after the call. Used by overnight orchestration
+                     to avoid reloading between successive runs.
+    """
     all_scores:   list[FrameScore] = []
     judge_scores: list[JudgeScore] = []
     latencies:    dict[tuple[str, int], list[float]]       = {}
@@ -395,6 +471,9 @@ def run_inference(context: PipelineContext) -> InferenceResults:
         if api_models:
             loaded_api: dict = {}
             for name, model in api_models.items():
+                if keep_loaded:
+                    loaded_api[name] = model
+                    continue
                 try:
                     model.load()
                     loaded_api[name] = model
@@ -425,28 +504,31 @@ def run_inference(context: PipelineContext) -> InferenceResults:
                             console.print(f"[bold red]✗ Model {name} failed[/bold red]")
                             console.print(traceback.format_exc(limit=3), style="dim red")
 
-            for model in loaded_api.values():
-                try:
-                    model.unload()
-                except Exception:
-                    pass
+            if not keep_loaded:
+                for model in loaded_api.values():
+                    try:
+                        model.unload()
+                    except Exception:
+                        pass
 
         # ── Local models: sequential ──────────────────────────────────────────
         for model_name, model in local_models.items():
-            with console.status(f"[bold yellow]Loading [magenta]{model_name}[/magenta]...", spinner="dots"):
-                try:
-                    model.load()
-                except Exception:
-                    console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
-                    console.print(traceback.format_exc(limit=3), style="dim red")
-                    continue
+            if not keep_loaded:
+                with console.status(f"[bold yellow]Loading [magenta]{model_name}[/magenta]...", spinner="dots"):
+                    try:
+                        model.load()
+                    except Exception:
+                        console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
+                        console.print(traceback.format_exc(limit=3), style="dim red")
+                        continue
             try:
                 _collect(_run_single_model(model_name, model, context, max_res, step, progress))
             finally:
-                try:
-                    model.unload()
-                except Exception:
-                    pass
+                if not keep_loaded:
+                    try:
+                        model.unload()
+                    except Exception:
+                        pass
 
     return InferenceResults(all_scores, judge_scores, latencies, token_counts)
 
@@ -457,7 +539,7 @@ def run_scoring(results: InferenceResults) -> list[ModelSummary]:
 
 def save_scores(summaries: list[ModelSummary], context: PipelineContext) -> None:
     """Save consolidated scores to disk."""
-    payload = build_scores_payload(summaries, tracking=context.tracking_enabled, mode=context.mode)
+    payload = build_scores_payload(summaries, tracking=context.tracking_enabled, multi_crop=context.multi_crop_enabled, mode=context.mode, max_resolution=context.max_resolution)
     with open(context.results_dir / "raw" / "scores.json", "w") as f:
         json.dump(payload, f, indent=2, default=str)
     console.print(Panel(f"Results saved in: [bold white]{context.results_dir}[/bold white]", border_style="green"))
@@ -498,15 +580,29 @@ def run(
     benchmark_cfg_path: Path,
     selected_models: list[str] | None = None,
     tracking: bool | None = None,
+    multi_crop: bool | None = None,
+    run_id: str | None = None,
+    max_resolution: tuple | None = None,
 ) -> Path:
     """Main pipeline entry point. Orchestrates loading, inference, scoring, and reporting."""
     try:
-        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="extraction")
+        context = load_pipeline(models_cfg_path, clips_cfg_path, benchmark_cfg_path, selected_models, mode="extraction", run_id=run_id)
+        if max_resolution is not None:
+            context.sampling_cfg["max_resolution"] = list(max_resolution)
+            context.max_resolution = max_resolution
+        else:
+            res = context.sampling_cfg.get("max_resolution")
+            context.max_resolution = tuple(res) if res else None
         if tracking is not None:
             context.tracking_enabled = tracking
             if tracking and not context.fallback_prompt:
                 context.fallback_prompt = context.prompt
                 context.prompt = _TRACKING_PROMPT_FILE.read_text().strip()
+        if multi_crop is not None:
+            context.multi_crop_enabled = multi_crop
+            if multi_crop and context.live_tracker is None:
+                from ..tracking.detector import LiveTracker
+                context.live_tracker = LiveTracker()
         results   = run_inference(context)
         summaries = run_scoring(results)
         report_results(summaries, context)
