@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "tracking": false,
+    "mode": "complexity",
+    "run_id": "complexity_baseline_molmo2",
+    "max_resolution": [
+      1280,
+      720
+    ]
+  },
+  "results": [
+    {
+      "model_name": "molmo2-8b",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 0.01,
+      "mean_pdr_ped": 0.003333333333333333,
+      "std_pdr_ped": 0.03316624790355399,
+      "mean_pdr_veh": 0.002150537634408602,
+      "std_pdr_veh": 0.02062723235833428,
+      "avg_latency_s": 17.87038,
+      "total_prompt_tokens": 172700,
+      "total_completion_tokens": 34493
+    }
+  ]
+}
