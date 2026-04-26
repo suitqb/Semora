@@ -250,7 +250,7 @@ def _run_single_complexity_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {cw.window.clip_id}/{cw.window.center_frame}[/red]")
-                    console.print(traceback.format_exc(), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red", markup=False)
                 progress.update(task_id, advance=1)
     else:
         for cw in all_cw:
@@ -266,7 +266,7 @@ def _run_single_complexity_model(
                 raise
             except Exception:
                 console.print(f"[red]✗ Error on {cw.window.clip_id}/{cw.window.center_frame}[/red]")
-                console.print(traceback.format_exc(), style="dim red")
+                console.print(traceback.format_exc(), style="dim red", markup=False)
             progress.update(task_id, advance=1)
 
     return model_lat, model_tok
@@ -330,7 +330,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
                     loaded_api[name] = model
                 except Exception:
                     console.print(f"[bold red]✗ Failed to load {name}[/bold red]")
-                    console.print(traceback.format_exc(limit=3), style="dim red")
+                    console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
 
             if loaded_api:
                 console.print(
@@ -354,7 +354,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
                             raise
                         except Exception:
                             console.print(f"[bold red]✗ Model {name} failed[/bold red]")
-                            console.print(traceback.format_exc(limit=3), style="dim red")
+                            console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
 
             for model in loaded_api.values():
                 try:
@@ -369,7 +369,7 @@ def _run_inference(context: PipelineContext) -> InferenceResults:
                     model.load()
                 except Exception:
                     console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
-                    console.print(traceback.format_exc(limit=3), style="dim red")
+                    console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
                     continue
             try:
                 lats, toks = _run_single_complexity_model(
@@ -495,5 +495,5 @@ def run_complexity(
         return context.results_dir
     except Exception:
         console.print("[bold red]Critical pipeline failure[/bold red]")
-        console.print(traceback.format_exc())
+        console.print(traceback.format_exc(), markup=False)
         raise

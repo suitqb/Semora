@@ -292,6 +292,7 @@ def _run_single_model(
     model_name: str, model, context: PipelineContext,
     max_res, step: int,
     progress: Progress,
+    clip_caches: dict[str, dict[str, list[dict]]] | None = None,
 ) -> tuple[list, list, dict, dict]:
     """Run all (clip, frame) iterations for one model against a shared progress bar."""
     model_scores: list = []
@@ -326,26 +327,27 @@ def _run_single_model(
     )
 
     if workers > 1:
-        clip_caches: dict[str, dict[str, list[dict]]] = {}
-        if context.live_tracker is not None and context.mode != "complexity":
-            for clip in context.clips:
-                context.live_tracker.reset()
-                if context.tracking_enabled:
-                    console.print(
-                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
-                        f"for tracking context...[/cyan]"
-                    )
-                    clip_caches[clip.clip_id] = _build_clip_detection_cache(
-                        context.live_tracker, clip, max_res, stateful=True
-                    )
-                else:
-                    console.print(
-                        f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
-                        f"for crop detection...[/cyan]"
-                    )
-                    clip_caches[clip.clip_id] = _build_clip_detection_cache(
-                        context.live_tracker, clip, max_res, stateful=False
-                    )
+        if clip_caches is None:
+            clip_caches = {}
+            if context.live_tracker is not None and context.mode != "complexity":
+                for clip in context.clips:
+                    context.live_tracker.reset()
+                    if context.tracking_enabled:
+                        console.print(
+                            f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                            f"for tracking context...[/cyan]"
+                        )
+                        clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                            context.live_tracker, clip, max_res, stateful=True
+                        )
+                    else:
+                        console.print(
+                            f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                            f"for crop detection...[/cyan]"
+                        )
+                        clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                            context.live_tracker, clip, max_res, stateful=False
+                        )
         all_windows = [(clip, w) for clip in context.clips for w in sample_windows(clip, max_res, step)]
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {}
@@ -375,7 +377,7 @@ def _run_single_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                    console.print(traceback.format_exc(), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red", markup=False)
                 progress.update(task_id, advance=1)
     else:
         for clip in context.clips:
@@ -425,7 +427,7 @@ def _run_single_model(
                     raise
                 except Exception:
                     console.print(f"[red]✗ Error on {clip.clip_id}/{window.center_frame}[/red]")
-                    console.print(traceback.format_exc(), style="dim red")
+                    console.print(traceback.format_exc(), style="dim red", markup=False)
                 progress.update(task_id, advance=1)
 
     return model_scores, model_judge, model_lat, model_tok
@@ -449,6 +451,22 @@ def run_inference(context: PipelineContext, keep_loaded: bool = False) -> Infere
 
     api_models   = {n: m for n, m in context.models.items() if m.parallel_workers > 1}
     local_models = {n: m for n, m in context.models.items() if m.parallel_workers <= 1}
+
+    # Precompute YOLO caches once — shared across all API model threads
+    shared_clip_caches: dict[str, dict[str, list[dict]]] | None = None
+    if api_models and context.live_tracker is not None and context.mode != "complexity":
+        shared_clip_caches = {}
+        stateful = context.tracking_enabled
+        label = "tracking context" if stateful else "crop detection"
+        for clip in context.clips:
+            context.live_tracker.reset()
+            console.print(
+                f"[cyan]  Scanning {clip.clip_id} ({len(clip.frame_names)} frames) "
+                f"for {label}...[/cyan]"
+            )
+            shared_clip_caches[clip.clip_id] = _build_clip_detection_cache(
+                context.live_tracker, clip, max_res, stateful=stateful
+            )
 
     def _collect(result):
         scores, jscores, lats, toks = result
@@ -479,7 +497,7 @@ def run_inference(context: PipelineContext, keep_loaded: bool = False) -> Infere
                     loaded_api[name] = model
                 except Exception:
                     console.print(f"[bold red]✗ Failed to load {name}[/bold red]")
-                    console.print(traceback.format_exc(limit=3), style="dim red")
+                    console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
 
             if loaded_api:
                 console.print(
@@ -491,6 +509,7 @@ def run_inference(context: PipelineContext, keep_loaded: bool = False) -> Infere
                         executor.submit(
                             _run_single_model,
                             name, model, context, max_res, step, progress,
+                            clip_caches=shared_clip_caches,
                         ): name
                         for name, model in loaded_api.items()
                     }
@@ -502,7 +521,7 @@ def run_inference(context: PipelineContext, keep_loaded: bool = False) -> Infere
                             raise
                         except Exception:
                             console.print(f"[bold red]✗ Model {name} failed[/bold red]")
-                            console.print(traceback.format_exc(limit=3), style="dim red")
+                            console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
 
             if not keep_loaded:
                 for model in loaded_api.values():
@@ -519,7 +538,7 @@ def run_inference(context: PipelineContext, keep_loaded: bool = False) -> Infere
                         model.load()
                     except Exception:
                         console.print(f"[bold red]✗ Failed to load {model_name}[/bold red]")
-                        console.print(traceback.format_exc(limit=3), style="dim red")
+                        console.print(traceback.format_exc(limit=3), style="dim red", markup=False)
                         continue
             try:
                 _collect(_run_single_model(model_name, model, context, max_res, step, progress))
@@ -609,5 +628,5 @@ def run(
         return context.results_dir
     except Exception:
         console.print("[bold red]Critical pipeline failure[/bold red]")
-        console.print(traceback.format_exc())
+        console.print(traceback.format_exc(), markup=False)
         raise
