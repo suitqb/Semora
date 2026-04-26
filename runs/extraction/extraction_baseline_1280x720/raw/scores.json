@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "label": "baseline",
+    "timestamp": "2026-04-26 13:09",
+    "tracking": false,
+    "multi_crop": false,
+    "mode": "extraction",
+    "max_resolution": [
+      1280,
+      720
+    ]
+  },
+  "results": [
+    {
+      "model_name": "mistral-medium",
+      "window_size": 1,
+      "n_frames": 160,
+      "parse_success_rate": 0.99375,
+      "f1_context": 0.5824198861934711,
+      "f1_pedestrians": 0.7368194070080862,
+      "f1_vehicles": 0.43899371069182397,
+      "person_fields": {
+        "atomic_action": {
+          "precision": 0.8962264150943396,
+          "recall": 0.6441299790356394,
+          "f1": 0.7157232704402515
+        },
+        "simple_context": {
+          "precision": 0.8390985324947589,
+          "recall": 0.48427672955974843,
+          "f1": 0.5824198861934711
+        },
+        "communicative": {
+          "precision": 0.9748427672955975,
+          "recall": 0.7348008385744235,
+          "f1": 0.8054507337526206
+        },
+        "transporting": {
+          "precision": 0.8542976939203355,
+          "recall": 0.8029350104821803,
+          "f1": 0.7932914046121593
+        },
+        "age": {
+          "precision": 0.8867924528301887,
+          "recall": 0.7463312368972747,
+          "f1": 0.7872117400419287
+        }
+      },
+      "vehicle_fields": {
+        "motion_status": {
+          "precision": 0.5943396226415094,
+          "recall": 0.44339622641509435,
+          "f1": 0.48679245283018874
+        },
+        "trunk_open": {
+          "precision": 0.5566037735849056,
+          "recall": 0.34591194968553457,
+          "f1": 0.41509433962264153
+        },
+        "doors_open": {
+          "precision": 0.5534591194968553,
+          "recall": 0.34591194968553457,
+          "f1": 0.41509433962264153
+        }
+      },
+      "avg_latency_s": 3.21375,
+      "total_prompt_tokens": 310880,
+      "total_completion_tokens": 65916,
+      "avg_judge_completeness": 0.3386163522012579,
+      "avg_judge_semantic_richness": 0.4948427672955975,
+      "avg_judge_spatial_relations": 0.4645911949685535,
+      "avg_judge_overall": 0.4217610062893082
+    }
+  ]
+}

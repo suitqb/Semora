@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "tracking": false,
+    "mode": "complexity",
+    "run_id": "complexity_baseline",
+    "max_resolution": [
+      1280,
+      720
+    ]
+  },
+  "results": [
+    {
+      "model_name": "mistral-medium",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.7285765119912103,
+      "std_pdr_ped": 0.23289552293250135,
+      "mean_pdr_veh": 0.6523809523809524,
+      "std_pdr_veh": 0.40117928956190374,
+      "avg_latency_s": 9.094940000000001,
+      "total_prompt_tokens": 176900,
+      "total_completion_tokens": 104667
+    }
+  ]
+}
