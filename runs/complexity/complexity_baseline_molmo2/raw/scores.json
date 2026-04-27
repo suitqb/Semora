@@ -12,15 +12,15 @@
     {
       "model_name": "molmo2-8b",
       "window_size": 1,
-      "n_frames": 100,
-      "parse_success_rate": 0.01,
-      "mean_pdr_ped": 0.003333333333333333,
-      "std_pdr_ped": 0.03316624790355399,
-      "mean_pdr_veh": 0.002150537634408602,
-      "std_pdr_veh": 0.02062723235833428,
-      "avg_latency_s": 17.87038,
+      "n_frames": 200,
+      "parse_success_rate": 0.03,
+      "mean_pdr_ped": 0.011738095238095238,
+      "std_pdr_ped": 0.0873090757971546,
+      "mean_pdr_veh": 0.015924219150025603,
+      "std_pdr_veh": 0.11090096715521122,
+      "avg_latency_s": 54.19229,
       "total_prompt_tokens": 172700,
-      "total_completion_tokens": 34493
+      "total_completion_tokens": 33874
     }
   ]
 }

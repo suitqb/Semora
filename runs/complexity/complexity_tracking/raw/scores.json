@@ -1,6 +1,6 @@
 {
   "meta": {
-    "tracking": true,
+    "tracking": false,
     "mode": "complexity",
     "run_id": "complexity_tracking",
     "max_resolution": [
@@ -12,15 +12,15 @@
     {
       "model_name": "mistral-medium",
       "window_size": 1,
-      "n_frames": 100,
+      "n_frames": 200,
       "parse_success_rate": 1.0,
-      "mean_pdr_ped": 0.7577378996981332,
-      "std_pdr_ped": 0.23083556758186954,
-      "mean_pdr_veh": 0.6695084485407066,
-      "std_pdr_veh": 0.38980611052391717,
-      "avg_latency_s": 6.87908,
-      "total_prompt_tokens": 197025,
-      "total_completion_tokens": 105852
+      "mean_pdr_ped": 0.7521122387781505,
+      "std_pdr_ped": 0.22457347805755068,
+      "mean_pdr_veh": 0.6600870455709166,
+      "std_pdr_veh": 0.3993992663435342,
+      "avg_latency_s": 8.26536,
+      "total_prompt_tokens": 176900,
+      "total_completion_tokens": 110019
     }
   ]
 }
