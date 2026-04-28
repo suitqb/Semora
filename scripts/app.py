@@ -132,7 +132,7 @@ def list_runs() -> dict[str, list[Path]]:
         if not mode_dir.is_dir():
             continue
         runs = sorted(
-            [r for r in mode_dir.iterdir() if r.is_dir() and (r / "raw").exists()],
+            [r for r in mode_dir.iterdir() if r.is_dir() and r.name != "past" and (r / "raw").exists()],
             reverse=True,
         )
         if runs:
