@@ -2,13 +2,53 @@
   "meta": {
     "tracking": false,
     "mode": "complexity",
-    "run_id": "complexity_baseline",
+    "run_id": "complexity_baseline_20260423_180516",
     "max_resolution": [
       1280,
       720
-    ]
+    ],
+    "label": "baseline"
   },
   "results": [
+    {
+      "model_name": "gpt-4o-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.3368766658901094,
+      "std_pdr_ped": 0.267727284497813,
+      "mean_pdr_veh": 0.5536610343061955,
+      "std_pdr_veh": 0.35982819760254203,
+      "avg_latency_s": 7.49042,
+      "total_prompt_tokens": 3741800,
+      "total_completion_tokens": 40152
+    },
+    {
+      "model_name": "gpt-5-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.7725895078439722,
+      "std_pdr_ped": 0.23492815768923078,
+      "mean_pdr_veh": 0.8738351254480287,
+      "std_pdr_veh": 0.2813221668937531,
+      "avg_latency_s": 64.87595,
+      "total_prompt_tokens": 168700,
+      "total_completion_tokens": 329871
+    },
+    {
+      "model_name": "mistral-large",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.6324642192625023,
+      "std_pdr_ped": 0.2737531689527437,
+      "mean_pdr_veh": 0.763594470046083,
+      "std_pdr_veh": 0.31115968133040056,
+      "avg_latency_s": 11.39624,
+      "total_prompt_tokens": 181900,
+      "total_completion_tokens": 93492
+    },
     {
       "model_name": "mistral-medium",
       "window_size": 1,
@@ -21,6 +61,32 @@
       "avg_latency_s": 9.094940000000001,
       "total_prompt_tokens": 176900,
       "total_completion_tokens": 104667
+    },
+    {
+      "model_name": "molmo2-8b",
+      "window_size": 1,
+      "n_frames": 200,
+      "parse_success_rate": 0.03,
+      "mean_pdr_ped": 0.011738095238095238,
+      "std_pdr_ped": 0.0873090757971546,
+      "mean_pdr_veh": 0.015924219150025603,
+      "std_pdr_veh": 0.11090096715521122,
+      "avg_latency_s": 54.19229,
+      "total_prompt_tokens": 172700,
+      "total_completion_tokens": 33874
+    },
+    {
+      "model_name": "molmo2-8b-pointing",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 0.05,
+      "mean_pdr_ped": 0.020142857142857143,
+      "std_pdr_ped": 0.11834048076526943,
+      "mean_pdr_veh": 0.0296979006656426,
+      "std_pdr_veh": 0.15425024379938745,
+      "avg_latency_s": 73.18895,
+      "total_prompt_tokens": 295900,
+      "total_completion_tokens": 45516
     }
   ]
 }

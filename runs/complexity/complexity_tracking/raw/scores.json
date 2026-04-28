@@ -1,26 +1,63 @@
 {
   "meta": {
-    "tracking": false,
+    "tracking": true,
     "mode": "complexity",
-    "run_id": "complexity_tracking",
+    "run_id": "complexity_tracking_20260423_183429",
     "max_resolution": [
       1280,
       720
-    ]
+    ],
+    "label": "tracking"
   },
   "results": [
     {
+      "model_name": "gpt-4o-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.46240081290930213,
+      "std_pdr_ped": 0.3010270839441538,
+      "mean_pdr_veh": 0.5778801843317972,
+      "std_pdr_veh": 0.35320263395413165,
+      "avg_latency_s": 9.171520000000001,
+      "total_prompt_tokens": 3756291,
+      "total_completion_tokens": 56511
+    },
+    {
+      "model_name": "gpt-5-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.7765644510584727,
+      "std_pdr_ped": 0.24561705099479922,
+      "mean_pdr_veh": 0.8690476190476191,
+      "std_pdr_veh": 0.2741938352400392,
+      "avg_latency_s": 66.57753,
+      "total_prompt_tokens": 183191,
+      "total_completion_tokens": 337369
+    },
+    {
+      "model_name": "mistral-large",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.66913719563895,
+      "std_pdr_ped": 0.2728348516981125,
+      "mean_pdr_veh": 0.8034050179211469,
+      "std_pdr_veh": 0.3029023927577554,
+      "avg_latency_s": 12.002550000000001,
+      "total_prompt_tokens": 202025,
+      "total_completion_tokens": 110644
+    },
+    {
       "model_name": "mistral-medium",
       "window_size": 1,
-      "n_frames": 200,
+      "n_frames": 100,
       "parse_success_rate": 1.0,
-      "mean_pdr_ped": 0.7521122387781505,
-      "std_pdr_ped": 0.22457347805755068,
-      "mean_pdr_veh": 0.6600870455709166,
-      "std_pdr_veh": 0.3993992663435342,
-      "avg_latency_s": 8.26536,
-      "total_prompt_tokens": 176900,
-      "total_completion_tokens": 110019
+      "mean_pdr_ped": 0.9641298410900747,
+      "std_pdr_ped": 0.721679258166856,
+      "mean_pdr_veh": 0.8218381976446492,
+      "std_pdr_veh": 0.6690712535019223
     }
   ]
 }
