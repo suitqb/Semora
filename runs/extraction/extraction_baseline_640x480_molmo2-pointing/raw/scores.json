@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "label": "baseline",
+    "timestamp": "2026-04-28 09:40",
+    "tracking": false,
+    "multi_crop": false,
+    "mode": "extraction",
+    "max_resolution": [
+      640,
+      480
+    ]
+  },
+  "results": [
+    {
+      "model_name": "molmo2-8b-pointing",
+      "window_size": 1,
+      "n_frames": 160,
+      "parse_success_rate": 0.49375,
+      "f1_context": 0.13025919228450875,
+      "f1_pedestrians": 0.31212778782399037,
+      "f1_vehicles": 0.23445850914205343,
+      "person_fields": {
+        "atomic_action": {
+          "precision": 0.37341772151898733,
+          "recall": 0.26582278481012656,
+          "f1": 0.29957805907172996
+        },
+        "simple_context": {
+          "precision": 0.2468354430379747,
+          "recall": 0.09725738396624473,
+          "f1": 0.13025919228450875
+        },
+        "communicative": {
+          "precision": 0.470464135021097,
+          "recall": 0.38396624472573837,
+          "f1": 0.39957805907172994
+        },
+        "transporting": {
+          "precision": 0.40295358649789026,
+          "recall": 0.31645569620253167,
+          "f1": 0.3333333333333333
+        },
+        "age": {
+          "precision": 0.4008438818565401,
+          "recall": 0.4177215189873418,
+          "f1": 0.3978902953586498
+        }
+      },
+      "vehicle_fields": {
+        "motion_status": {
+          "precision": 0.26582278481012656,
+          "recall": 0.189873417721519,
+          "f1": 0.20970464135021097
+        },
+        "trunk_open": {
+          "precision": 0.3227848101265823,
+          "recall": 0.21518987341772153,
+          "f1": 0.2510548523206751
+        },
+        "doors_open": {
+          "precision": 0.310126582278481,
+          "recall": 0.2088607594936709,
+          "f1": 0.24261603375527424
+        }
+      },
+      "avg_latency_s": 44.162625000000006,
+      "total_prompt_tokens": 292480,
+      "total_completion_tokens": 48745,
+      "avg_judge_completeness": 0.16924050632911394,
+      "avg_judge_semantic_richness": 0.30544303797468353,
+      "avg_judge_spatial_relations": 0.3063291139240506,
+      "avg_judge_overall": 0.2439240506329114
+    }
+  ]
+}

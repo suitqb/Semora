@@ -1,0 +1,195 @@
+{
+  "meta": {
+    "label": "baseline",
+    "timestamp": "2026-04-23 17:31",
+    "tracking": false,
+    "multi_crop": false,
+    "mode": "extraction",
+    "max_resolution": [
+      640,
+      480
+    ]
+  },
+  "results": [
+    {
+      "model_name": "gpt-4o-mini",
+      "window_size": 1,
+      "n_frames": 160,
+      "parse_success_rate": 1.0,
+      "f1_context": 0.40425595238095235,
+      "f1_pedestrians": 0.6327261904761905,
+      "f1_vehicles": 0.40687500000000004,
+      "person_fields": {
+        "atomic_action": {
+          "precision": 0.840625,
+          "recall": 0.5682291666666667,
+          "f1": 0.6522916666666666
+        },
+        "simple_context": {
+          "precision": 0.696875,
+          "recall": 0.30656249999999996,
+          "f1": 0.40425595238095235
+        },
+        "communicative": {
+          "precision": 0.86875,
+          "recall": 0.6135416666666667,
+          "f1": 0.6866666666666666
+        },
+        "transporting": {
+          "precision": 0.859375,
+          "recall": 0.665625,
+          "f1": 0.7172916666666667
+        },
+        "age": {
+          "precision": 0.80625,
+          "recall": 0.6572916666666667,
+          "f1": 0.703125
+        }
+      },
+      "vehicle_fields": {
+        "motion_status": {
+          "precision": 0.50625,
+          "recall": 0.34375,
+          "f1": 0.39145833333333335
+        },
+        "trunk_open": {
+          "precision": 0.55,
+          "recall": 0.346875,
+          "f1": 0.4145833333333333
+        },
+        "doors_open": {
+          "precision": 0.55,
+          "recall": 0.346875,
+          "f1": 0.4145833333333333
+        }
+      },
+      "avg_latency_s": 4.1270187499999995,
+      "total_prompt_tokens": 2406560,
+      "total_completion_tokens": 39621,
+      "avg_judge_completeness": 0.240375,
+      "avg_judge_semantic_richness": 0.41212499999999996,
+      "avg_judge_spatial_relations": 0.3671875,
+      "avg_judge_overall": 0.32625000000000004
+    },
+    {
+      "model_name": "gpt-5-mini",
+      "window_size": 1,
+      "n_frames": 160,
+      "parse_success_rate": 1.0,
+      "f1_context": 0.6355803571428571,
+      "f1_pedestrians": 0.7583660714285714,
+      "f1_vehicles": 0.46409722222222216,
+      "person_fields": {
+        "atomic_action": {
+          "precision": 0.821875,
+          "recall": 0.728125,
+          "f1": 0.7404166666666667
+        },
+        "simple_context": {
+          "precision": 0.7828125,
+          "recall": 0.5692708333333333,
+          "f1": 0.6355803571428571
+        },
+        "communicative": {
+          "precision": 0.959375,
+          "recall": 0.7322916666666667,
+          "f1": 0.7972916666666666
+        },
+        "transporting": {
+          "precision": 0.9479166666666666,
+          "recall": 0.7822916666666667,
+          "f1": 0.8270833333333334
+        },
+        "age": {
+          "precision": 0.8875,
+          "recall": 0.75,
+          "f1": 0.7914583333333333
+        }
+      },
+      "vehicle_fields": {
+        "motion_status": {
+          "precision": 0.60625,
+          "recall": 0.4895833333333333,
+          "f1": 0.5214583333333334
+        },
+        "trunk_open": {
+          "precision": 0.5875,
+          "recall": 0.359375,
+          "f1": 0.4354166666666666
+        },
+        "doors_open": {
+          "precision": 0.5875,
+          "recall": 0.359375,
+          "f1": 0.4354166666666666
+        }
+      },
+      "avg_latency_s": 29.818006250000003,
+      "total_prompt_tokens": 185920,
+      "total_completion_tokens": 234028,
+      "avg_judge_completeness": 0.3748125,
+      "avg_judge_semantic_richness": 0.560875,
+      "avg_judge_spatial_relations": 0.5943125,
+      "avg_judge_overall": 0.49087500000000006
+    },
+    {
+      "model_name": "mistral-large",
+      "window_size": 1,
+      "n_frames": 160,
+      "parse_success_rate": 1.0,
+      "f1_context": 0.503095238095238,
+      "f1_pedestrians": 0.6549940476190476,
+      "f1_vehicles": 0.41972222222222216,
+      "person_fields": {
+        "atomic_action": {
+          "precision": 0.74375,
+          "recall": 0.5880208333333333,
+          "f1": 0.6258333333333332
+        },
+        "simple_context": {
+          "precision": 0.7208333333333333,
+          "recall": 0.41239583333333335,
+          "f1": 0.503095238095238
+        },
+        "communicative": {
+          "precision": 0.9,
+          "recall": 0.6354166666666667,
+          "f1": 0.7104166666666667
+        },
+        "transporting": {
+          "precision": 0.8177083333333334,
+          "recall": 0.684375,
+          "f1": 0.7089583333333334
+        },
+        "age": {
+          "precision": 0.821875,
+          "recall": 0.6833333333333333,
+          "f1": 0.7266666666666667
+        }
+      },
+      "vehicle_fields": {
+        "motion_status": {
+          "precision": 0.528125,
+          "recall": 0.371875,
+          "f1": 0.4133333333333333
+        },
+        "trunk_open": {
+          "precision": 0.559375,
+          "recall": 0.353125,
+          "f1": 0.421875
+        },
+        "doors_open": {
+          "precision": 0.565625,
+          "recall": 0.353125,
+          "f1": 0.4239583333333333
+        }
+      },
+      "avg_latency_s": 5.1077625,
+      "total_prompt_tokens": 193760,
+      "total_completion_tokens": 56706,
+      "avg_judge_completeness": 0.27668750000000003,
+      "avg_judge_semantic_richness": 0.46275000000000005,
+      "avg_judge_spatial_relations": 0.46237500000000004,
+      "avg_judge_overall": 0.3824375
+    }
+  ]
+}

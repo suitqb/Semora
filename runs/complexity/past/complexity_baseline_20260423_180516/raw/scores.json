@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "tracking": false,
+    "mode": "complexity",
+    "run_id": "complexity_baseline_20260423_180516",
+    "max_resolution": [
+      1280,
+      720
+    ]
+  },
+  "results": [
+    {
+      "model_name": "gpt-4o-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.3368766658901094,
+      "std_pdr_ped": 0.267727284497813,
+      "mean_pdr_veh": 0.5536610343061955,
+      "std_pdr_veh": 0.35982819760254203,
+      "avg_latency_s": 7.49042,
+      "total_prompt_tokens": 3741800,
+      "total_completion_tokens": 40152
+    },
+    {
+      "model_name": "gpt-5-mini",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.7725895078439722,
+      "std_pdr_ped": 0.23492815768923078,
+      "mean_pdr_veh": 0.8738351254480287,
+      "std_pdr_veh": 0.2813221668937531,
+      "avg_latency_s": 64.87595,
+      "total_prompt_tokens": 168700,
+      "total_completion_tokens": 329871
+    },
+    {
+      "model_name": "mistral-large",
+      "window_size": 1,
+      "n_frames": 100,
+      "parse_success_rate": 1.0,
+      "mean_pdr_ped": 0.6324642192625023,
+      "std_pdr_ped": 0.2737531689527437,
+      "mean_pdr_veh": 0.763594470046083,
+      "std_pdr_veh": 0.31115968133040056,
+      "avg_latency_s": 11.39624,
+      "total_prompt_tokens": 181900,
+      "total_completion_tokens": 93492
+    }
+  ]
+}
