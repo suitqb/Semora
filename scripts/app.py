@@ -738,20 +738,22 @@ def _load_multi_scores(run_dirs: list[Path]) -> pd.DataFrame:
 
 def _run_label_with_tracking(run_dir: Path) -> str:
     meta = load_run_meta(run_dir)
+    res = meta.get("max_resolution")
+    res_str = f" {res[0]}×{res[1]}" if res else ""
     label = meta.get("label")
     if label:
-        return label
+        return f"{label}{res_str}"
     # fallback for older runs without label field
     mode = meta.get("mode", "extraction")
     if mode == "complexity":
         return "detection" if meta.get("tracking") else "baseline"
     if meta.get("tracking") and meta.get("multi_crop"):
-        return "tracking+crop"
+        return f"tracking+crop{res_str}"
     if meta.get("tracking"):
-        return "tracking"
+        return f"tracking{res_str}"
     if meta.get("multi_crop"):
-        return "crop"
-    return run_dir.name   # dernier recours : timestamp brut
+        return f"crop{res_str}"
+    return run_dir.name
 
 
 def _partition_by_tracking(runs: list[Path]) -> tuple[list[Path], list[Path]]:
